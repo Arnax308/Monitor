@@ -482,7 +482,7 @@ def set_page_style():
         color: #ffffff;
     }}
     .card-title {{
-        font-size: 2rem;  /* Larger for a heading look */
+        font-size: 2rem;
         font-weight: 600;
         color: #82b1ff;
     }}
@@ -496,7 +496,6 @@ def set_page_style():
     .stTextArea {{
         min-height: 120px;
     }}
-
     .stExpander {{
         border: 1px solid #4682B4;
         border-radius: 8px;
@@ -534,7 +533,6 @@ def set_page_style():
         border-bottom-right-radius: 0;
         background-color: #2b2b2b;
     }}
-
     .history-item {{
         margin: 0.7rem 0;
         padding: 1rem;
@@ -781,7 +779,7 @@ def set_page_style():
 
     /* Card-like style inside the expander */
     .entry-card {{
-        border: 2px solid #ffffff; /* White outline */
+        border: 2px solid #ffffff;
         background-color: #121212;
         border-radius: 6px;
         padding: 20px;
@@ -916,7 +914,6 @@ def main():
                 client_name = st.text_input("Client Name", key="client_name")
                 unique_id = st.text_input("Unique ID", key="unique_id")
                 employee_name = st.text_input("Employee Name", value=st.session_state.network.hostname)
-            
             with col2:
                 priority = st.selectbox("Priority", PRIORITY_LEVELS, index=1)
                 deadline = st.date_input("Deadline (optional)", value=None)
@@ -962,7 +959,7 @@ def main():
             st.markdown(f'<h3 class="tab-header">Active Entries ({len(sorted_active_entries)})</h3>', unsafe_allow_html=True)
             
             for uid, entry in sorted_active_entries:
-                # This expander is labeled with the same name & ID
+                # This expander is labeled with the client name and ID
                 with st.expander(f"{entry['name']} (ID: {uid})", expanded=False):
                     
                     priority_class = entry['priority'].lower()
@@ -1031,6 +1028,12 @@ def main():
                         height=100,
                         placeholder="Type your update here..."
                     )
+                    # New field: Employee Name for the update
+                    employee_update = st.text_input(
+                        "Employee Name",
+                        value=st.session_state.network.hostname,
+                        key=f"update_employee_{uid}"
+                    )
 
                     # Show payment input only if there's a remaining balance
                     payment_made = ""
@@ -1049,7 +1052,7 @@ def main():
                                 unique_id=uid,
                                 message=new_message,
                                 computer_name=st.session_state.network.hostname,
-                                employee_name=st.session_state.network.hostname,
+                                employee_name=employee_update,
                                 payment_made=payment_made if remaining > 0 else None
                             )
                             st.session_state.action_status = (success, message)
@@ -1076,7 +1079,7 @@ def main():
                             unsafe_allow_html=True
                         )
 
-                    # Close the custom card container
+                    # Close our custom card container
                     st.markdown("</div>", unsafe_allow_html=True)
 
         else:
@@ -1156,7 +1159,6 @@ def main():
                                         st.session_state.action_status = (success, message)
                                         st.session_state.form_submitted = True
                             
-                            # Display history
                             st.markdown("<hr>", unsafe_allow_html=True)
                             st.markdown("### History")
                             for item in reversed(entry['history']):
