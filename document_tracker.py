@@ -820,10 +820,10 @@ def main():
     col_fs1, col_fs2, col_fs3 = st.sidebar.columns([1,1,2])
     if col_fs1.button("A-"):
         st.session_state.font_size = max(0.5, st.session_state.font_size - 0.1)
-        st.experimental_rerun()
+        st.rerun()
     if col_fs2.button("A+"):
         st.session_state.font_size += 0.1
-        st.experimental_rerun()
+        st.rerun()
     col_fs3.markdown(f"Current: {st.session_state.font_size:.1f} rem")
 
     log_file = setup_logging()
