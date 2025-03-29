@@ -447,7 +447,7 @@ def mark_entry_completed(unique_id, computer_name, employee_name):
     })
     
     st.session_state.network.broadcast_entries({unique_id: st.session_state.entries[unique_id]})
-    return True, "Entry marked as completed
+    return True, "Entry marked as completed" 
 
 def set_page_style():
     font_size = st.session_state.get('font_size', 1.1)
