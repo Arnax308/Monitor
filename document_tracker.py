@@ -61,14 +61,14 @@ def is_deadline_approaching(deadline_str):
 def setup_logging():
     os.makedirs("logs", exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"logs/monitor_{today}.log"
+    log_file = f"logs/trace_{today}.log"
     logging.basicConfig(
         filename=log_file,
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    logging.info("Monitor started")
+    logging.info("Trace started")
     return log_file
 
 def log_action(action_type, user, details=None):
@@ -829,7 +829,7 @@ def main():
     log_file = setup_logging()
     logging.info(f"Application started, logging to {log_file}")
     set_page_style()
-    st.markdown('<h1 class="main-header">Monitor</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Trace</h1>', unsafe_allow_html=True)
 
     if 'network' not in st.session_state:
         st.session_state.network = P2PNetwork()

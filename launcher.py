@@ -30,7 +30,7 @@ def main():
     time.sleep(5)
     
     # Open the app in a pywebview window.
-    window = webview.create_window("Monitor", "http://localhost:8501")
+    window = webview.create_window("Trace", "http://localhost:8501")
     webview.start()
     
     # When the window is closed, terminate the Streamlit process.
