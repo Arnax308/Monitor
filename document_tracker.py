@@ -61,14 +61,14 @@ def is_deadline_approaching(deadline_str):
 def setup_logging():
     os.makedirs("logs", exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"logs/client_tracker_{today}.log"
+    log_file = f"logs/monitor_{today}.log"
     logging.basicConfig(
         filename=log_file,
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    logging.info("Client Tracker application started")
+    logging.info("Monitor started")
     return log_file
 
 def log_action(action_type, user, details=None):
@@ -410,7 +410,7 @@ def update_entry(unique_id, message, computer_name, employee_name, payment_made=
     })
     
     st.session_state.network.broadcast_entries({unique_id: st.session_state.entries[unique_id]})
-    return True, "Update submitted and broadcasted"
+    return True, "Update submitted"
 
 def mark_entry_completed(unique_id, computer_name, employee_name):
     with st.session_state.network.entries_lock:
@@ -447,7 +447,7 @@ def mark_entry_completed(unique_id, computer_name, employee_name):
     })
     
     st.session_state.network.broadcast_entries({unique_id: st.session_state.entries[unique_id]})
-    return True, "Entry marked as completed and broadcasted"
+    return True, "Entry marked as completed
 
 def set_page_style():
     font_size = st.session_state.get('font_size', 1.1)
@@ -829,7 +829,7 @@ def main():
     log_file = setup_logging()
     logging.info(f"Application started, logging to {log_file}")
     set_page_style()
-    st.markdown('<h1 class="main-header">Client Tracker</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Monitor</h1>', unsafe_allow_html=True)
 
     if 'network' not in st.session_state:
         st.session_state.network = P2PNetwork()
