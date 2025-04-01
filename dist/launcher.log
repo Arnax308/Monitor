@@ -1,0 +1,9 @@
+Launcher started at Mon Mar 31 17:33:56 2025
+Base directory: C:\Users\Arnav\Documents\document_tracker\dist
+Document path: C:\Users\Arnav\Documents\document_tracker\dist\document_tracker.py
+Path exists: False
+Python path: C:\Users\Arnav\AppData\Local\Programs\Python\Python313\python.exe
+Command: C:\Users\Arnav\AppData\Local\Programs\Python\Python313\python.exe -m streamlit run C:\Users\Arnav\Documents\document_tracker\dist\document_tracker.py --server.port 8501 --server.headless true --server.address 127.0.0.1
+Streamlit process ID: 23636
+Waiting for Streamlit server to start...
+Creating WebView window...
