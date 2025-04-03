@@ -117,13 +117,15 @@ class P2PNetwork:
             listener.bind(('', DISCOVERY_PORT))
             while self.running:
                 try:
-                    data, _ = listener.recvfrom(1024)
+                    data, addr = listener.recvfrom(1024)
                     msg = data.decode()
                     if msg.startswith("DISCOVERY:"):
                         peer_ip = msg.split(":")[1]
                         if peer_ip != self.ip and peer_ip not in self.peers:
                             self.peers.add(peer_ip)
                             logging.info(f"Discovered new peer: {peer_ip}")
+                            # When a new peer is discovered, immediately send full entries to it.
+                            self.send_entries_to_peer(peer_ip)
                 except Exception as e:
                     logging.error(f"Discovery listener error: {e}")
         except Exception as e:
@@ -144,7 +146,11 @@ class P2PNetwork:
                     if data:
                         payload = json.loads(data.decode())
                         if payload.get('type') == 'entries':
-                            self.process_received_entries(payload['data'])
+                            updated = self.process_received_entries(payload['data'])
+                            if updated and 'notification_system' in st.session_state:
+                                st.session_state.notification_system.send_notification(
+                                    "sync_update", "Entries updated from peer sync"
+                                )
                         elif payload.get('type') == 'whiteboard':
                             self.process_received_whiteboard(payload['data'])
                     client.close()
@@ -222,6 +228,21 @@ class P2PNetwork:
             except Exception as e:
                 logging.error(f"Failed to broadcast {task_type} to {peer_ip}: {e}")
 
+    def send_entries_to_peer(self, peer_ip):
+        """
+        When a new peer is discovered, send the full local entries.
+        """
+        entries = load_entries()
+        payload = json.dumps({'type': 'entries', 'data': entries}).encode()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                client.settimeout(2)
+                client.connect((peer_ip, BROADCAST_PORT))
+                client.sendall(payload)
+            logging.info(f"Sent full entries to new peer {peer_ip}")
+        except Exception as e:
+            logging.error(f"Failed to send entries to {peer_ip}: {e}")
+
 class NotificationSystem:
     def __init__(self, network):
         self.network = network
@@ -250,11 +271,13 @@ class NotificationSystem:
             logging.error(f"Failed to bind notification listener: {e}")
 
     def _handle_notification(self, notification):
+        # Replace st.toast with st.info/st.warning to display notifications
+        message = f"{notification['source']}: {notification['message']}"
         logging.info(f"Received notification: {notification['type']} - {notification['message']}")
-        if notification['type'] in ['new_entry', 'update_entry']:
-            st.toast(f"{notification['source']}: {notification['message']}", icon="ℹ️")
+        if notification['type'] in ['new_entry', 'update_entry', 'whiteboard_update', 'sync_update']:
+            st.info(message)
         elif notification['type'] == 'priority_update':
-            st.toast(f"System Alert: {notification['message']}", icon="⚠️")
+            st.warning(f"System Alert: {notification['message']}")
 
     def send_notification(self, notification_type, message, details=None):
         notification = {
@@ -632,7 +655,7 @@ def set_page_style():
         text-decoration: underline;
     }}
     .stSelectbox > div[data-baseweb="select"] {{
-        background-color: #1e1e1e;
+        background-color: #1e1a1a;
         border: 1px solid #333333;
         font-size: 1.15rem;
     }}
@@ -959,12 +982,9 @@ def main():
             st.markdown(f'<h3 class="tab-header">Active Entries ({len(sorted_active_entries)})</h3>', unsafe_allow_html=True)
             
             for uid, entry in sorted_active_entries:
-                # This expander is labeled with the client name and ID
                 with st.expander(f"{entry['name']} (ID: {uid})", expanded=False):
-                    
                     priority_class = entry['priority'].lower()
 
-                    # Check days-left text if there's a deadline
                     deadline_text = ""
                     if entry.get('deadline'):
                         from datetime import datetime
@@ -977,12 +997,10 @@ def main():
                         else:
                             deadline_text = f"({days_left} days left)"
 
-                    # Convert strings to floats for payment logic
                     total_payable = float(entry.get('total_payable', '0'))
                     total_paid = float(entry.get('total_paid', '0'))
                     remaining = float(entry.get('remaining', '0'))
 
-                    # Start our "card" container inside the expander
                     st.markdown(
                         f"""
                         <div class="entry-card">
@@ -995,14 +1013,12 @@ def main():
                         unsafe_allow_html=True
                     )
 
-                    # Show deadline if available
                     if entry.get('deadline'):
                         st.markdown(
                             f"<div class='entry-card-deadline'>Deadline: {entry['deadline']} {deadline_text}</div>",
                             unsafe_allow_html=True
                         )
 
-                    # Payment details
                     st.markdown(
                         """
                         <div class="entry-card-section">
@@ -1021,21 +1037,18 @@ def main():
 
                     st.markdown("<hr/>", unsafe_allow_html=True)
 
-                    # Update form
                     new_message = st.text_area(
                         f"Add Update for {entry['name']}",
                         key=f"update_{uid}",
                         height=100,
                         placeholder="Type your update here..."
                     )
-                    # New field: Employee Name for the update
                     employee_update = st.text_input(
                         "Employee Name",
                         value=st.session_state.network.hostname,
                         key=f"update_employee_{uid}"
                     )
 
-                    # Show payment input only if there's a remaining balance
                     payment_made = ""
                     if remaining > 0:
                         st.markdown("<div class='payment-section'>Payment Update:</div>", unsafe_allow_html=True)
@@ -1070,7 +1083,6 @@ def main():
 
                     st.markdown("<hr/>", unsafe_allow_html=True)
 
-                    # History
                     st.markdown("<h3>History</h3>", unsafe_allow_html=True)
                     for item in reversed(entry['history']):
                         msg_html = item['message'].replace("\n", "<br>")
@@ -1078,14 +1090,10 @@ def main():
                             f"<div class='history-item'><strong>{item['timestamp']} - {item['computer']}:</strong><br>{msg_html}</div>",
                             unsafe_allow_html=True
                         )
-
-                    # Close our custom card container
                     st.markdown("</div>", unsafe_allow_html=True)
-
         else:
             st.info("No active entries found.")
     
-    # === TAB 2: SEARCH CLIENTS ===
     with tab_search:
         st.markdown('<h2 class="section-header">Search Clients</h2>', unsafe_allow_html=True)
         st.markdown('<div class="info-message">Search for clients by name.</div>', unsafe_allow_html=True)
@@ -1099,7 +1107,6 @@ def main():
         
         if st.session_state.search_results is not None:
             if st.session_state.search_results:
-                # Group results by client name
                 client_groups = defaultdict(list)
                 for uid, entry in st.session_state.search_results:
                     client_groups[entry['name']].append((uid, entry))
@@ -1115,7 +1122,6 @@ def main():
                     for uid, entry in entries_list:
                         with st.expander(f"Details for Case {uid}", expanded=False):
                             if entry.get('completed', False):
-                                # Completed => use st.download_button for immediate download
                                 filename, content = create_completion_file(uid, entry['name'], entry['history'])
                                 if filename and content:
                                     st.download_button(
@@ -1125,7 +1131,6 @@ def main():
                                         mime="text/plain"
                                     )
                             else:
-                                # Show update form
                                 st.markdown("<hr>", unsafe_allow_html=True)
                                 new_message = st.text_area(
                                     f"Add Update for {entry['name']}",
@@ -1170,7 +1175,6 @@ def main():
             else:
                 st.markdown('<div class="search-no-results">No clients found matching your search.</div>', unsafe_allow_html=True)
     
-    # === TAB 3: SHARED WHITEBOARD ===
     with tab_whiteboard:
         st.markdown('<h2 class="section-header">Shared Whiteboard</h2>', unsafe_allow_html=True)
         st.markdown('<div class="whiteboard-note">Use this shared space for notes, reminders, and announcements. Changes are synchronized with all connected computers.</div>', unsafe_allow_html=True)
