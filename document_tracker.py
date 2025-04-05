@@ -2,6 +2,7 @@ import streamlit as st
 import json, os, socket, threading, time, difflib, base64, logging
 from datetime import datetime, timedelta
 from collections import defaultdict
+import queue
 
 # Constants
 ENTRIES_FILE = "entries.json"
@@ -84,10 +85,15 @@ class P2PNetwork:
         self.entries_lock = threading.Lock()
         self.whiteboard_lock = threading.Lock()
         self.running = True
+        self.entry_version_map = {}  # Track entry versions
+        self.last_sync_times = {}  # Track last sync time with each peer
         
         # Start network threads
         for target in (self.discovery_sender, self.discovery_listener, self.broadcast_listener):
             threading.Thread(target=target, daemon=True).start()
+        
+        # Start periodic sync thread
+        threading.Thread(target=self.periodic_sync, daemon=True).start()
 
     def _get_local_ip(self):
         try:
@@ -123,9 +129,10 @@ class P2PNetwork:
                         peer_ip = msg.split(":")[1]
                         if peer_ip != self.ip and peer_ip not in self.peers:
                             self.peers.add(peer_ip)
+                            self.last_sync_times[peer_ip] = 0  # Initialize sync time
                             logging.info(f"Discovered new peer: {peer_ip}")
-                            # When a new peer is discovered, immediately send full entries to it.
-                            self.send_entries_to_peer(peer_ip)
+                            # When a new peer is discovered, immediately sync entries
+                            self.sync_with_peer(peer_ip)
                 except Exception as e:
                     logging.error(f"Discovery listener error: {e}")
         except Exception as e:
@@ -139,67 +146,304 @@ class P2PNetwork:
             server.listen(10)
             while self.running:
                 try:
-                    client, _ = server.accept()
-                    data = b""
-                    while (chunk := client.recv(4096)):
-                        data += chunk
-                    if data:
-                        payload = json.loads(data.decode())
-                        if payload.get('type') == 'entries':
-                            updated = self.process_received_entries(payload['data'])
-                            if updated and 'notification_system' in st.session_state:
-                                st.session_state.notification_system.send_notification(
-                                    "sync_update", "Entries updated from peer sync"
-                                )
-                        elif payload.get('type') == 'whiteboard':
-                            self.process_received_whiteboard(payload['data'])
-                    client.close()
+                    client, addr = server.accept()
+                    threading.Thread(target=self.handle_client_connection, 
+                                    args=(client, addr[0]), 
+                                    daemon=True).start()
                 except Exception as e:
                     logging.error(f"Broadcast listener error: {e}")
         except Exception as e:
             logging.error(f"Failed to bind broadcast listener: {e}")
+    
+    def handle_client_connection(self, client_socket, peer_ip):
+        """Handle incoming client connections in separate threads"""
+        try:
+            data = b""
+            while (chunk := client_socket.recv(4096)):
+                data += chunk
+                if len(chunk) < 4096:  # If we got less than buffer size, likely done
+                    break
+                    
+            if data:
+                payload = json.loads(data.decode())
+                if payload.get('type') == 'entries':
+                    updated = self.process_received_entries(payload['data'], peer_ip)
+                    if updated and 'notification_system' in st.session_state:
+                        st.session_state.notification_system.send_notification(
+                            "sync_update", "Entries updated from peer sync"
+                        )
+                    
+                    # Send acknowledgment back to the peer
+                    response = json.dumps({
+                        'type': 'sync_ack',
+                        'status': 'success' if updated else 'no_change'
+                    }).encode()
+                    client_socket.sendall(response)
+                    
+                elif payload.get('type') == 'whiteboard':
+                    self.process_received_whiteboard(payload['data'])
+                elif payload.get('type') == 'sync_request':
+                    # Handle sync request by sending our entries
+                    entries = load_entries()
+                    response = json.dumps({
+                        'type': 'entries',
+                        'data': entries,
+                        'version_map': self.entry_version_map
+                    }).encode()
+                    client_socket.sendall(response)
+        except Exception as e:
+            logging.error(f"Error handling client connection from {peer_ip}: {e}")
+        finally:
+            client_socket.close()
 
-    def process_received_entries(self, received_entries):
+    def initialize_version_map(self):
+        """Initialize version map from current entries"""
+        entries = load_entries()
+        with self.entries_lock:
+            for uid, entry in entries.items():
+                # Use the number of history items or completion status as version indicator
+                history_len = len(entry.get('history', []))
+                completion_status = 1 if entry.get('completed', False) else 0
+                self.entry_version_map[uid] = {
+                    'history_len': history_len,
+                    'completed': completion_status,
+                    'last_modified': entry.get('last_modified', datetime.now().timestamp())
+                }
+
+    def process_received_entries(self, received_entries, peer_ip=None):
+        """
+        Process entries received from peers with conflict resolution.
+        Returns True if local entries were updated.
+        """
         with self.entries_lock:
             local_entries = load_entries()
+            received_version_map = received_entries.pop('version_map', {})
             updated = False
+
             for uid, recv in received_entries.items():
+                # Track conflict resolution decisions for logging
+                resolution_log = []
+                
                 if uid not in local_entries:
+                    # New entry we don't have - just add it
                     local_entries[uid] = recv
+                    self.update_version_for_entry(uid, recv)
+                    resolution_log.append("Added new entry")
                     updated = True
                     continue
                 
                 local = local_entries[uid]
-                if (len(local['history']) < len(recv['history']) or
-                    (not local.get('completed') and recv.get('completed'))):
-                    local_entries[uid] = recv
-                    updated = True
-                    continue
                 
-                local_ts = {h['timestamp'] for h in local['history']}
-                for h in recv['history']:
-                    if h['timestamp'] not in local_ts:
-                        local['history'].append(h)
-                        updated = True
-                local['history'].sort(key=lambda x: x['timestamp'])
-                
+                # Handle completion status - "completed" is a terminal state
                 if recv.get('completed') and not local.get('completed'):
                     local['completed'] = True
+                    resolution_log.append("Updated completion status to completed")
                     updated = True
+                
+                # Check priority updates
+                if 'priority' in recv and recv['priority'] != local.get('priority'):
+                    # Use most recent priority setting
+                    recv_time = recv.get('last_priority_update', 0)
+                    local_time = local.get('last_priority_update', 0)
+                    
+                    if recv_time > local_time:
+                        local['priority'] = recv['priority']
+                        local['last_priority_update'] = recv_time
+                        resolution_log.append(f"Updated priority to {recv['priority']}")
+                        updated = True
+                
+                # Handle history entries, which might need merging
+                recv_timestamps = {h['timestamp'] for h in recv.get('history', [])}
+                local_timestamps = {h['timestamp'] for h in local.get('history', [])}
+                
+                # Find history entries we don't have
+                new_timestamps = recv_timestamps - local_timestamps
+                if new_timestamps:
+                    for h in recv.get('history', []):
+                        if h['timestamp'] in new_timestamps:
+                            local.setdefault('history', []).append(h)
+                            resolution_log.append(f"Added history item from {h['computer']}")
+                    
+                    # Re-sort history by timestamp
+                    local['history'].sort(key=lambda x: x['timestamp'])
+                    updated = True
+                
+                # Handle deadline updates
+                if 'deadline' in recv and recv.get('deadline') != local.get('deadline'):
+                    # Use the most recent deadline change
+                    recv_deadline_time = recv.get('deadline_updated', 0)
+                    local_deadline_time = local.get('deadline_updated', 0)
+                    
+                    if recv_deadline_time > local_deadline_time:
+                        local['deadline'] = recv['deadline']
+                        local['deadline_updated'] = recv_deadline_time
+                        resolution_log.append(f"Updated deadline to {recv['deadline']}")
+                        updated = True
+                
+                # Update version info for this entry
+                if updated:
+                    self.update_version_for_entry(uid, local)
+                    # Log the resolution decisions
+                    if resolution_log:
+                        logging.info(f"Entry {uid} updates from {peer_ip}: {', '.join(resolution_log)}")
             
             if updated:
+                # Save updated entries
                 save_entries(local_entries)
                 st.session_state.entries = local_entries
-                logging.info("Successfully merged received entries")
+                logging.info(f"Successfully updated entries from {peer_ip}")
+                
+                # Update last sync time for this peer
+                if peer_ip:
+                    self.last_sync_times[peer_ip] = time.time()
+            
             return updated
 
-    def broadcast_entries(self, entries_to_broadcast):
+    def update_version_for_entry(self, uid, entry):
+        """Update our version tracking for a specific entry"""
+        history_len = len(entry.get('history', []))
+        completion_status = 1 if entry.get('completed', False) else 0
+        self.entry_version_map[uid] = {
+            'history_len': history_len,
+            'completed': completion_status,
+            'last_modified': entry.get('last_modified', datetime.now().timestamp())
+        }
+
+    def broadcast_entries(self, entries_to_broadcast=None):
+        """
+        Broadcast entries to all peers.
+        If entries_to_broadcast is None, broadcast all entries.
+        """
         if not self.peers:
             logging.warning("No peers to broadcast entries to")
             return
         
-        payload = json.dumps({'type': 'entries', 'data': entries_to_broadcast}).encode()
-        threading.Thread(target=self._broadcast_task, args=(payload, 'entries'), daemon=True).start()
+        if entries_to_broadcast is None:
+            # Broadcast all entries
+            entries = load_entries()
+        else:
+            entries = entries_to_broadcast
+            
+        # Include version map
+        entries_with_metadata = entries.copy()
+        entries_with_metadata['version_map'] = self.entry_version_map
+        
+        payload = json.dumps({
+            'type': 'entries', 
+            'data': entries_with_metadata
+        }).encode()
+        
+        threading.Thread(target=self._broadcast_task, 
+                        args=(payload, 'entries'), 
+                        daemon=True).start()
+
+    def broadcast_entry_update(self, entry_id, updated_entry):
+        """
+        Broadcast a single entry update to all peers.
+        """
+        if not self.peers:
+            logging.warning("No peers to broadcast entry update to")
+            return
+        
+        # Update version info for this entry
+        self.update_version_for_entry(entry_id, updated_entry)
+        
+        # Create a payload with just this entry
+        entries_payload = {entry_id: updated_entry}
+        
+        # Include version map
+        entries_payload['version_map'] = {
+            entry_id: self.entry_version_map.get(entry_id, {})
+        }
+        
+        payload = json.dumps({
+            'type': 'entries', 
+            'data': entries_payload
+        }).encode()
+        
+        threading.Thread(target=self._broadcast_task, 
+                        args=(payload, 'entry_update'), 
+                        daemon=True).start()
+        
+        logging.info(f"Broadcasting update for entry {entry_id}")
+
+    def mark_entry_completed(self, entry_id):
+        """
+        Mark an entry as completed and broadcast the update.
+        """
+        with self.entries_lock:
+            entries = load_entries()
+            if entry_id in entries:
+                entries[entry_id]['completed'] = True
+                entries[entry_id]['completion_time'] = datetime.now().timestamp()
+                save_entries(entries)
+                
+                # Update session state
+                st.session_state.entries = entries
+                
+                # Broadcast the update
+                self.broadcast_entry_update(entry_id, entries[entry_id])
+                
+                # Create completion file
+                create_completion_file(
+                    entry_id, 
+                    entries[entry_id].get('name', 'Unnamed'), 
+                    entries[entry_id].get('history', [])
+                )
+                
+                logging.info(f"Entry {entry_id} marked as completed")
+                return True
+            return False
+
+    def update_entry(self, entry_id, updates):
+        """
+        Update an entry with the provided updates and broadcast the change.
+        """
+        with self.entries_lock:
+            entries = load_entries()
+            if entry_id in entries:
+                # Apply updates
+                for key, value in updates.items():
+                    if key == 'history':
+                        # For history, append rather than replace
+                        entries[entry_id].setdefault('history', []).extend(value)
+                    else:
+                        entries[entry_id][key] = value
+                
+                # Add last_modified timestamp
+                entries[entry_id]['last_modified'] = datetime.now().timestamp()
+                
+                # Save updates
+                save_entries(entries)
+                
+                # Update session state
+                st.session_state.entries = entries
+                
+                # Broadcast the update
+                self.broadcast_entry_update(entry_id, entries[entry_id])
+                
+                logging.info(f"Entry {entry_id} updated with {len(updates)} changes")
+                return True
+            return False
+
+    def add_entry_message(self, entry_id, message, computer=None):
+        """
+        Add a message to an entry's history and broadcast the update.
+        """
+        if not computer:
+            computer = self.hostname
+            
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        history_item = {
+            "timestamp": timestamp,
+            "computer": computer,
+            "message": message
+        }
+        
+        return self.update_entry(entry_id, {
+            'history': [history_item]
+        })
 
     def broadcast_whiteboard(self, content):
         if not self.peers:
@@ -217,31 +461,108 @@ class P2PNetwork:
                 st.session_state.whiteboard = received_content
                 logging.info("Whiteboard updated from broadcasted content")
 
+    def sync_with_peer(self, peer_ip):
+        """
+        Initiate a sync with a specific peer.
+        """
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                client.settimeout(5)
+                client.connect((peer_ip, BROADCAST_PORT))
+                
+                # Send sync request
+                sync_request = json.dumps({
+                    'type': 'sync_request',
+                    'source': self.ip,
+                    'version_map': self.entry_version_map
+                }).encode()
+                
+                client.sendall(sync_request)
+                
+                # Wait for response
+                data = b""
+                while True:
+                    try:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                    except socket.timeout:
+                        break
+                
+                if data:
+                    payload = json.loads(data.decode())
+                    if payload.get('type') == 'entries':
+                        updated = self.process_received_entries(payload['data'], peer_ip)
+                        if updated and 'notification_system' in st.session_state:
+                            st.session_state.notification_system.send_notification(
+                                "sync_update", f"Entries synchronized with {peer_ip}"
+                            )
+                        
+                        # Update last sync time
+                        self.last_sync_times[peer_ip] = time.time()
+                        logging.info(f"Successfully synced with peer {peer_ip}")
+                        return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to sync with peer {peer_ip}: {e}")
+            # Remove peer if unreachable after multiple attempts
+            if peer_ip in self.peers:
+                self.peers.remove(peer_ip)
+                logging.warning(f"Removed unreachable peer {peer_ip}")
+            return False
+
+    def periodic_sync(self):
+        """
+        Periodically sync with all peers to ensure consistency.
+        """
+        # First initialize our version map
+        self.initialize_version_map()
+        
+        while self.running:
+            try:
+                # Sleep at the beginning to allow initial discovery
+                time.sleep(60)  # Sync every minute
+                
+                if not self.peers:
+                    continue
+                    
+                current_time = time.time()
+                for peer_ip in list(self.peers):  # Use list to avoid modification during iteration
+                    # Check if we need to sync (>5 minutes since last sync)
+                    last_sync = self.last_sync_times.get(peer_ip, 0)
+                    if current_time - last_sync > 300:  # 5 minutes
+                        sync_success = self.sync_with_peer(peer_ip)
+                        if not sync_success and current_time - last_sync > 1800:  # 30 minutes
+                            # If peer hasn't responded for 30 minutes, remove it
+                            if peer_ip in self.peers:
+                                self.peers.remove(peer_ip)
+                                logging.warning(f"Removed unresponsive peer {peer_ip}")
+            except Exception as e:
+                logging.error(f"Error in periodic sync: {e}")
+                time.sleep(30)  # Sleep and try again
+
+    def process_received_whiteboard(self, received_content):
+        with self.whiteboard_lock:
+            local_content = load_whiteboard()
+            if received_content != local_content:
+                save_whiteboard(received_content)
+                st.session_state.whiteboard = received_content
+                logging.info("Whiteboard updated from broadcasted content")
+
     def _broadcast_task(self, payload_json, task_type):
-        for peer_ip in self.peers:
+        for peer_ip in list(self.peers):  # Use list to avoid modification during iteration
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                    client.settimeout(2)
+                    client.settimeout(5)  # Increased timeout for larger data
                     client.connect((peer_ip, BROADCAST_PORT))
                     client.sendall(payload_json)
                 logging.debug(f"Broadcast {task_type} to {peer_ip} successful")
             except Exception as e:
                 logging.error(f"Failed to broadcast {task_type} to {peer_ip}: {e}")
-
-    def send_entries_to_peer(self, peer_ip):
-        """
-        When a new peer is discovered, send the full local entries.
-        """
-        entries = load_entries()
-        payload = json.dumps({'type': 'entries', 'data': entries}).encode()
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                client.settimeout(2)
-                client.connect((peer_ip, BROADCAST_PORT))
-                client.sendall(payload)
-            logging.info(f"Sent full entries to new peer {peer_ip}")
-        except Exception as e:
-            logging.error(f"Failed to send entries to {peer_ip}: {e}")
+                # If connection fails, consider removing peer after multiple failures
+                # This is handled in periodic_sync
 
 class NotificationSystem:
     def __init__(self, network):
@@ -249,7 +570,15 @@ class NotificationSystem:
         self.hostname = network.hostname
         self.ip = network.ip
         self.running = True
+        self.notification_queue = queue.Queue()
+        self.notification_history = []  # Store recent notifications to prevent duplicates
+        self.max_history = 50  # Maximum number of recent notifications to track
+        self.notification_lock = threading.Lock()
+        
+        # Start the notification threads
         threading.Thread(target=self.notification_listener, daemon=True).start()
+        threading.Thread(target=self.notification_processor, daemon=True).start()
+        
         logging.info(f"Notification system initialized on {self.hostname} ({self.ip})")
 
     def notification_listener(self):
@@ -260,50 +589,187 @@ class NotificationSystem:
             logging.info(f"Notification listener started on port {NOTIFICATION_PORT}")
             while self.running:
                 try:
+                    listener.settimeout(1.0)  # Allow checking self.running periodically
                     data, _ = listener.recvfrom(1024)
                     notif = json.loads(data.decode())
                     self._handle_notification(notif)
+                except socket.timeout:
+                    continue
                 except json.JSONDecodeError:
                     logging.warning("Received invalid notification format")
                 except Exception as e:
                     logging.error(f"Notification listener error: {e}")
         except Exception as e:
             logging.error(f"Failed to bind notification listener: {e}")
+            
+    def notification_processor(self):
+        """Process notifications from queue and send to peers"""
+        while self.running:
+            try:
+                # Get the next notification from the queue with a timeout
+                try:
+                    notification = self.notification_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # Generate a notification ID for deduplication
+                notification_id = f"{notification['source']}:{notification['timestamp']}:{notification['type']}"
+                notification['id'] = notification_id
+                
+                # Send to all peers
+                self._send_to_all_peers(notification)
+                
+                # Mark as done
+                self.notification_queue.task_done()
+            except Exception as e:
+                logging.error(f"Error in notification processor: {e}")
 
     def _handle_notification(self, notification):
-        # Replace st.toast with st.info/st.warning to display notifications
-        message = f"{notification['source']}: {notification['message']}"
-        logging.info(f"Received notification: {notification['type']} - {notification['message']}")
-        if notification['type'] in ['new_entry', 'update_entry', 'whiteboard_update', 'sync_update']:
-            st.info(message)
-        elif notification['type'] == 'priority_update':
-            st.warning(f"System Alert: {notification['message']}")
+        """Handle incoming notifications from peers"""
+        # Check for duplicates using notification ID
+        notification_id = notification.get('id')
+        if notification_id:
+            with self.notification_lock:
+                # Skip if we've seen this notification before
+                if notification_id in [n.get('id') for n in self.notification_history]:
+                    return
+                
+                # Add to history for deduplication
+                self.notification_history.append(notification)
+                if len(self.notification_history) > self.max_history:
+                    self.notification_history.pop(0)  # Remove oldest
+
+        # Get notification details
+        notif_type = notification.get('type', 'unknown')
+        message = notification.get('message', 'No message')
+        source = notification.get('source', 'Unknown')
+        formatted_message = f"{source}: {message}"
+        
+        # Log the notification
+        logging.info(f"Notification: [{notif_type}] {formatted_message}")
+        
+        # Display notification in the UI based on type
+        try:
+            if notif_type in ['new_entry', 'entry_update', 'whiteboard_update']:
+                st.info(formatted_message)
+            elif notif_type == 'entry_completed':
+                st.success(formatted_message)
+            elif notif_type in ['priority_update', 'deadline_update']:
+                st.warning(formatted_message)
+            elif notif_type == 'sync_update':
+                st.info(formatted_message)
+            else:
+                st.info(formatted_message)
+                
+            # Update UI state if needed
+            if notif_type == 'reload_entries' and 'entries' in st.session_state:
+                st.session_state.entries = load_entries()
+                st.experimental_rerun()
+        except Exception as e:
+            logging.error(f"Error displaying notification: {e}")
 
     def send_notification(self, notification_type, message, details=None):
+        """Queue a notification to be sent to all peers"""
         notification = {
             'type': notification_type,
             'message': message,
             'source': self.hostname,
-            'timestamp': datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'details': details or {}
         }
-        payload = json.dumps(notification).encode()
-        threading.Thread(target=self._send_notification_task, args=(payload,), daemon=True).start()
+        
+        # Generate a notification ID for deduplication
+        notification_id = f"{notification['source']}:{notification['timestamp']}:{notification['type']}"
+        notification['id'] = notification_id
+        
+        # Add to local history first
+        with self.notification_lock:
+            self.notification_history.append(notification)
+            if len(self.notification_history) > self.max_history:
+                self.notification_history.pop(0)  # Remove oldest
+        
+        # Display locally first
+        self._handle_notification(notification)
+        
+        # Queue for sending to peers
+        self.notification_queue.put(notification)
         logging.info(f"Notification queued: {notification_type} - {message}")
 
-    def _send_notification_task(self, payload):
-        for peer_ip in self.network.peers:
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(1)
-                    sock.sendto(payload, (peer_ip, NOTIFICATION_PORT))
-                logging.debug(f"Notification sent to {peer_ip}")
-            except socket.timeout:
-                logging.warning(f"Timeout sending notification to {peer_ip}")
-            except Exception as e:
-                logging.error(f"Failed to send notification to {peer_ip}: {e}")
+    def _send_to_all_peers(self, notification):
+        """Send notification to all peers with retry logic"""
+        payload = json.dumps(notification).encode()
+        max_retries = 2
+        
+        for peer_ip in list(self.network.peers):
+            retries = 0
+            while retries <= max_retries:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                        sock.settimeout(1)
+                        sock.sendto(payload, (peer_ip, NOTIFICATION_PORT))
+                    logging.debug(f"Notification sent to {peer_ip}")
+                    break  # Success, exit retry loop
+                except socket.timeout:
+                    logging.warning(f"Timeout sending notification to {peer_ip} (attempt {retries+1})")
+                    retries += 1
+                except Exception as e:
+                    logging.error(f"Failed to send notification to {peer_ip}: {e}")
+                    break  # Don't retry on non-timeout errors
+            
+            # If we exhausted retries, consider removing the peer
+            if retries > max_retries:
+                logging.warning(f"Peer {peer_ip} is unresponsive for notifications")
+
+    def notify_entry_created(self, entry_id, entry_name):
+        """Notification for a new entry"""
+        self.send_notification(
+            "new_entry",
+            f"New entry created: {entry_name}",
+            {"entry_id": entry_id, "entry_name": entry_name}
+        )
+
+    def notify_entry_updated(self, entry_id, entry_name, update_type="general"):
+        """Notification for an entry update"""
+        self.send_notification(
+            "entry_update",
+            f"Entry updated: {entry_name} ({update_type})",
+            {"entry_id": entry_id, "entry_name": entry_name, "update_type": update_type}
+        )
+
+    def notify_entry_completed(self, entry_id, entry_name):
+        """Notification for a completed entry"""
+        self.send_notification(
+            "entry_completed",
+            f"Entry completed: {entry_name}",
+            {"entry_id": entry_id, "entry_name": entry_name}
+        )
+
+    def notify_priority_changed(self, entry_id, entry_name, new_priority):
+        """Notification for a priority change"""
+        self.send_notification(
+            "priority_update",
+            f"Priority changed to {new_priority} for: {entry_name}",
+            {"entry_id": entry_id, "entry_name": entry_name, "priority": new_priority}
+        )
+
+    def notify_deadline_changed(self, entry_id, entry_name, new_deadline):
+        """Notification for a deadline change"""
+        self.send_notification(
+            "deadline_update",
+            f"Deadline updated to {new_deadline} for: {entry_name}",
+            {"entry_id": entry_id, "entry_name": entry_name, "deadline": new_deadline}
+        )
+
+    def notify_whiteboard_updated(self):
+        """Notification for whiteboard updates"""
+        self.send_notification(
+            "whiteboard_update",
+            f"Whiteboard updated by {self.hostname}",
+            {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        )
 
     def stop(self):
+        """Stop the notification system"""
         self.running = False
         logging.info("Notification system stopped")
 
@@ -834,6 +1300,9 @@ def main():
         st.session_state.rerun = False
         st.rerun()
 
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "Client Entries"
+
     # Initialize font size if not set
     if "font_size" not in st.session_state:
         st.session_state.font_size = 1.1
@@ -892,10 +1361,6 @@ def main():
         st.session_state.initial_message = ""
         st.session_state.reset_form_flag = False
 
-    if st.session_state.get('form_submitted', False):
-        st.session_state.form_submitted = False
-        st.rerun()
-
     if st.session_state.action_status:
         success, message = st.session_state.action_status
         if success:
@@ -923,8 +1388,21 @@ def main():
         st.session_state.whiteboard = load_whiteboard()
         st.rerun()
     
-    tab_main, tab_search, tab_whiteboard = st.tabs(["Client Entries", "Search Clients", "Shared Whiteboard"])
+    if st.session_state.active_tab in ["Client Entries", "Search Clients"]:
+        
+        # Determine the order: active tab comes first, the other second, then Shared Whiteboard.
+        if st.session_state.active_tab == "Client Entries":
+            first_tab = "Client Entries"
+            second_tab = "Search Clients"
+        else:
+            first_tab = "Search Clients"
+            second_tab = "Client Entries"
+        tab_main, tab_search, tab_whiteboard = st.tabs([first_tab, second_tab, "Shared Whiteboard"])
     
+    else:
+        # Default ordering if needed
+        tab_main, tab_search, tab_whiteboard = st.tabs(["Client Entries", "Search Clients", "Shared Whiteboard"])
+
     # === TAB 1: CLIENT ENTRIES ===
     with tab_main:
         st.markdown('<h2 class="section-header">Client Entries</h2>', unsafe_allow_html=True)
@@ -950,6 +1428,7 @@ def main():
             initial_message = st.text_area("Initial Notes", key="initial_message", height=120)
             
             if st.button("Submit New Entry"):
+                st.session_state.active_tab = "Client Entries"
                 deadline_str = deadline.strftime("%Y-%m-%d") if deadline else ""
                 success, message = submit_new_entry(
                     client_name=client_name,
@@ -1101,6 +1580,7 @@ def main():
         search_query = st.text_input("Enter client name to search", key="search_query")
         
         if st.button("Search") or st.session_state.current_search_query != search_query:
+            st.session_state.active_tab = "Search Clients"
             st.session_state.current_search_query = search_query
             search_results = search_entries_by_name(st.session_state.entries, search_query)
             st.session_state.search_results = search_results
@@ -1193,6 +1673,10 @@ def main():
                 )
             else:
                 st.info("No changes detected")
+
+    if st.session_state.get('form_submitted', False):
+        st.session_state.form_submitted = False
+        st.rerun()
 
 if __name__ == "__main__":
     main()
