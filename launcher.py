@@ -124,23 +124,33 @@ def set_window_icon(base_dir, log_path, window):
     """Set the window icon on Windows using ctypes."""
     try:
         icon_path = os.path.join(base_dir, "trace_icon.ico")
+        # Verify the icon file exists
+        if not os.path.exists(icon_path):
+            with open(log_path, "a") as log:
+                log.write(f"Icon file not found: {icon_path}\n")
+            return
+        
         with open(log_path, "a") as log:
             log.write(f"Setting window icon from: {icon_path}\n")
+            
         # Constants for Windows API
         WM_SETICON = 0x80
         ICON_SMALL = 0
         ICON_BIG = 1
-        # Load the icon (LR_LOADFROMFILE flag = 0x00000010)
-        hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, 0x00000010)
+        LR_LOADFROMFILE = 0x00000010  # Load icon from file
+        
+        # Load the icon using LoadImageW
+        hicon = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, LR_LOADFROMFILE)
         if hicon == 0:
             with open(log_path, "a") as log:
                 log.write("Failed to load icon using LoadImageW.\n")
             return
+        
         # Retrieve the native window handle from the webview window object.
-        # This assumes that the webview backend provides a get_window_handle() method.
         hwnd = None
         if hasattr(window, 'gui') and hasattr(window.gui, 'get_window_handle'):
             hwnd = window.gui.get_window_handle()
+        
         if hwnd:
             ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
             ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
