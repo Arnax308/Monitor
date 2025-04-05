@@ -3,6 +3,7 @@ import json, os, socket, threading, time, difflib, base64, logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 import queue
+import time
 
 # Constants
 ENTRIES_FILE = "entries.json"
@@ -16,24 +17,24 @@ PRIORITY_LEVELS = ["Low", "Medium", "High", "Highest"]
 
 def load_entries():
     try:
-        with open(ENTRIES_FILE, "r") as f:
+        with open(ENTRIES_FILE, "r", encoding='utf-8') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 def save_entries(entries):
-    with open(ENTRIES_FILE, "w") as f:
+    with open(ENTRIES_FILE, "w",  encoding='utf-8') as f:
         json.dump(entries, f, indent=2)
 
 def load_whiteboard():
     try:
-        with open(WHITEBOARD_FILE, "r") as f:
+        with open(WHITEBOARD_FILE, "r",  encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         return ""
 
 def save_whiteboard(content):
-    with open(WHITEBOARD_FILE, "w") as f:
+    with open(WHITEBOARD_FILE, "w", encoding='utf-8') as f:
         f.write(content)
     log_action("update_whiteboard", st.session_state.network.hostname, {"content_length": len(content)})
 
@@ -60,9 +61,14 @@ def is_deadline_approaching(deadline_str):
         return False
 
 def setup_logging():
-    os.makedirs("logs", exist_ok=True)
+    # Get the directory where the executable/script resides.
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    logs_dir = os.path.join(base_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
     today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"logs/trace_{today}.log"
+    log_file = os.path.join(logs_dir, f"trace_{today}.log")
+    
     logging.basicConfig(
         filename=log_file,
         level=logging.INFO,
@@ -76,6 +82,10 @@ def log_action(action_type, user, details=None):
     details = details or {}
     detail_str = " - ".join(f"{k}:{v}" for k, v in details.items())
     logging.info(f"ACTION:{action_type} - USER:{user} - {detail_str}")
+
+def get_download_link(content, filename, link_text="Download History"):
+    b64 = base64.b64encode(content.encode()).decode()
+    return f'<a href="data:text/plain;base64,{b64}" download="{filename}">{link_text}</a>'
 
 class P2PNetwork:
     def __init__(self):
@@ -156,45 +166,87 @@ class P2PNetwork:
             logging.error(f"Failed to bind broadcast listener: {e}")
     
     def handle_client_connection(self, client_socket, peer_ip):
-        """Handle incoming client connections in separate threads"""
-        try:
-            data = b""
-            while (chunk := client_socket.recv(4096)):
-                data += chunk
-                if len(chunk) < 4096:  # If we got less than buffer size, likely done
-                    break
-                    
-            if data:
-                payload = json.loads(data.decode())
-                if payload.get('type') == 'entries':
-                    updated = self.process_received_entries(payload['data'], peer_ip)
-                    if updated and 'notification_system' in st.session_state:
-                        st.session_state.notification_system.send_notification(
-                            "sync_update", "Entries updated from peer sync"
-                        )
-                    
-                    # Send acknowledgment back to the peer
-                    response = json.dumps({
-                        'type': 'sync_ack',
-                        'status': 'success' if updated else 'no_change'
-                    }).encode()
-                    client_socket.sendall(response)
-                    
-                elif payload.get('type') == 'whiteboard':
-                    self.process_received_whiteboard(payload['data'])
-                elif payload.get('type') == 'sync_request':
-                    # Handle sync request by sending our entries
-                    entries = load_entries()
-                    response = json.dumps({
-                        'type': 'entries',
-                        'data': entries,
-                        'version_map': self.entry_version_map
-                    }).encode()
-                    client_socket.sendall(response)
-        except Exception as e:
-            logging.error(f"Error handling client connection from {peer_ip}: {e}")
-        finally:
-            client_socket.close()
+    """Handle incoming client connections in separate threads."""
+    try:
+        data = b""
+        while (chunk := client_socket.recv(4096)):
+            data += chunk
+            # If we received less than the buffer size, assume the message is complete.
+            if len(chunk) < 4096:
+                break
+
+        if data:
+            payload = json.loads(data.decode())
+            if payload.get('type') == 'entries':
+                updated = self.process_received_entries(payload['data'], peer_ip)
+                if updated and 'notification_system' in st.session_state:
+                    st.session_state.notification_system.send_notification(
+                        "sync_update", "Entries updated from peer sync"
+                    )
+                # Send an acknowledgment back to the peer.
+                response = json.dumps({
+                    'type': 'sync_ack',
+                    'status': 'success' if updated else 'no_change'
+                }).encode()
+                client_socket.sendall(response)
+
+            elif payload.get('type') == 'whiteboard':
+                self.process_received_whiteboard(payload['data'])
+
+            elif payload.get('type') == 'sync_request':
+                from datetime import datetime
+                fmt = "%d-%m-%Y %H:%M:%S"  # The timestamp format used in history entries.
+
+                peer_version_map = payload.get('version_map', {})
+                local_entries = load_entries()
+                entries_to_send = {}
+
+                for uid, local_entry in local_entries.items():
+                    # Only process entries that have a history.
+                    if not local_entry.get('history'):
+                        continue
+
+                    # Get the latest update from local history.
+                    local_latest = max(local_entry['history'], key=lambda h: datetime.strptime(h['timestamp'], fmt))
+                    local_last_modified = datetime.strptime(local_latest['timestamp'], fmt)
+
+                    # Get the peer's version timestamp for this entry, if any.
+                    peer_ts_str = peer_version_map.get(uid, {}).get('last_modified')
+                    if peer_ts_str:
+                        try:
+                            peer_last_modified = datetime.strptime(peer_ts_str, fmt)
+                        except Exception:
+                            # If parsing fails, treat as no valid data.
+                            peer_last_modified = None
+                    else:
+                        peer_last_modified = None
+
+                    if not peer_last_modified:
+                        # Peer has no data for this entry; send our latest update.
+                        entries_to_send[uid] = {'latest_update': local_latest}
+                    else:
+                        if local_last_modified > peer_last_modified:
+                            # Our update is more recent; send it.
+                            entries_to_send[uid] = {'latest_update': local_latest}
+                        elif local_last_modified < peer_last_modified:
+                            # Peer is ahead; do not send any data.
+                            continue
+                        else:
+                            # Conflict: timestamps are equal but data might differ.
+                            # Send our update and mark it as a conflict.
+                            entries_to_send[uid] = {'latest_update': local_latest, 'conflict': True}
+
+                response = json.dumps({
+                    'type': 'entries',
+                    'data': entries_to_send,
+                    'version_map': self.entry_version_map
+                }).encode()
+                client_socket.sendall(response)
+
+    except Exception as e:
+        logging.error(f"Error handling client connection from {peer_ip}: {e}")
+    finally:
+        client_socket.close()
 
     def initialize_version_map(self):
         """Initialize version map from current entries"""
@@ -1369,18 +1421,18 @@ def main():
             st.error(message)
         st.session_state.action_status = None
 
+    active_peers = [
+    peer for peer, last_sync in st.session_state.network.last_sync_times.items() 
+    if time.time() - last_sync < 600  # 10 minutes threshold
+    ]
+    
     st.sidebar.markdown('<h2 class="section-header">Network Status</h2>', unsafe_allow_html=True)
     st.sidebar.markdown(
         f'<div class="network-status">Host: {st.session_state.network.hostname}<br>'
         f'IP: {st.session_state.network.ip}<br>'
-        f'Connected Peers: {len(st.session_state.network.peers)}</div>',
+        f'Connected Peers: {len(active_peers)}</div>',
         unsafe_allow_html=True
     )
-    
-    if st.session_state.network.peers:
-        st.sidebar.markdown("<b>Connected Peers:</b>")
-        for peer in st.session_state.network.peers:
-            st.sidebar.markdown(f"- {peer}")
 
     if st.sidebar.button("🔄 Manual Refresh"):
         st.session_state.network.peers = set()
@@ -1604,12 +1656,9 @@ def main():
                             if entry.get('completed', False):
                                 filename, content = create_completion_file(uid, entry['name'], entry['history'])
                                 if filename and content:
-                                    st.download_button(
-                                        label="Download History",
-                                        data=content,
-                                        file_name=filename,
-                                        mime="text/plain"
-                                    )
+                                    download_link = get_download_link(content, filename)
+                                    st.markdown(download_link, unsafe_allow_html=True)
+
                             else:
                                 st.markdown("<hr>", unsafe_allow_html=True)
                                 new_message = st.text_area(

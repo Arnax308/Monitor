@@ -1,142 +1,40 @@
 {
-  "1": {
-    "name": "Arnav Rajurkar",
+  "0001": {
+    "name": "B",
     "history": [
       {
-        "timestamp": "03-04-2025 15:14:26",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
+        "timestamp": "05-04-2025 13:19:54",
+        "computer": "Abhijeet",
+        "employee": "Abhijeet",
         "message": "-"
       },
       {
-        "timestamp": "03-04-2025 15:14:42",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b9100.0 received. Total paid: \u20b9100.0. Remaining: \u20b90"
-      },
-      {
-        "timestamp": "05-04-2025 10:10:34",
+        "timestamp": "05-04-2025 13:20:07",
         "computer": "ArnavPavilion",
         "employee": "ArnavPavilion",
         "message": "-"
-      },
+      }
+    ],
+    "priority": "Medium",
+    "deadline": "",
+    "total_payable": "100.0",
+    "total_paid": "100.0",
+    "remaining": "0.0"
+  },
+  "200": {
+    "name": "Ar",
+    "history": [
       {
-        "timestamp": "05-04-2025 10:10:57",
+        "timestamp": "05-04-2025 13:29:09",
         "computer": "ArnavPavilion",
         "employee": "ArnavPavilion",
         "message": "-"
-      },
-      {
-        "timestamp": "05-04-2025 10:17:54",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "This entry has been marked as COMPLETED."
       }
     ],
     "priority": "Medium",
     "deadline": "",
     "total_payable": "0.0",
-    "total_paid": "100.0",
-    "remaining": "0",
-    "completed": true
-  },
-  "0002": {
-    "name": "AA",
-    "history": [
-      {
-        "timestamp": "05-04-2025 09:57:21",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "-"
-      },
-      {
-        "timestamp": "05-04-2025 09:57:34",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b98000.0 received. Total paid: \u20b99000.0. Remaining: \u20b91000.0"
-      },
-      {
-        "timestamp": "05-04-2025 10:06:23",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "-"
-      },
-      {
-        "timestamp": "05-04-2025 10:06:44",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b9500.0 received. Total paid: \u20b99500.0. Remaining: \u20b9500.0"
-      },
-      {
-        "timestamp": "05-04-2025 10:09:21",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b9100.0 received. Total paid: \u20b99600.0. Remaining: \u20b9400.0"
-      },
-      {
-        "timestamp": "05-04-2025 10:17:12",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b9200.0 received. Total paid: \u20b99800.0. Remaining: \u20b9200.0"
-      },
-      {
-        "timestamp": "05-04-2025 10:17:36",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Update 2"
-      },
-      {
-        "timestamp": "05-04-2025 10:18:15",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "This entry has been marked as COMPLETED."
-      },
-      {
-        "timestamp": "05-04-2025 10:18:19",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "This entry has been marked as COMPLETED."
-      },
-      {
-        "timestamp": "05-04-2025 10:18:24",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "This entry has been marked as COMPLETED."
-      }
-    ],
-    "priority": "High",
-    "deadline": "",
-    "total_payable": "10000.0",
-    "total_paid": "9800.0",
-    "remaining": "200.0",
-    "completed": true
-  },
-  "3": {
-    "name": "B",
-    "history": [
-      {
-        "timestamp": "05-04-2025 10:22:49",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Made files"
-      },
-      {
-        "timestamp": "05-04-2025 10:22:56",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Payment of \u20b9500.0 received. Total paid: \u20b92000.0. Remaining: \u20b98000.0"
-      },
-      {
-        "timestamp": "05-04-2025 10:23:24",
-        "computer": "ArnavPavilion",
-        "employee": "ArnavPavilion",
-        "message": "Made files again"
-      }
-    ],
-    "priority": "Medium",
-    "deadline": "",
-    "total_payable": "10000.0",
-    "total_paid": "2000.0",
-    "remaining": "8000.0"
+    "total_paid": "0.0",
+    "remaining": "0.0"
   }
 }
