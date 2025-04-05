@@ -5,7 +5,7 @@ a = Analysis(
     ['launcher.py'],
     pathex=[],
     binaries=[],
-    datas=[('document_tracker.py', '.'), ('entries.json', '.'), ('whiteboard.txt', '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

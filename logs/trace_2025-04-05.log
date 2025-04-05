@@ -1,0 +1,251 @@
+2025-04-05 09:53:20 - INFO - Trace started
+2025-04-05 09:53:20 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:54:58 - INFO - Trace started
+2025-04-05 09:54:58 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:54:58 - INFO - Notification listener started on port 12347
+2025-04-05 09:54:58 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 09:55:00 - INFO - Trace started
+2025-04-05 09:55:00 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:55:00 - INFO - Trace started
+2025-04-05 09:55:00 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:06 - INFO - Trace started
+2025-04-05 09:57:06 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:12 - INFO - Trace started
+2025-04-05 09:57:12 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:13 - INFO - Trace started
+2025-04-05 09:57:13 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:17 - INFO - Trace started
+2025-04-05 09:57:17 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:20 - INFO - Trace started
+2025-04-05 09:57:20 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:21 - INFO - Trace started
+2025-04-05 09:57:21 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:21 - INFO - Trace started
+2025-04-05 09:57:21 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:21 - INFO - ACTION:create_entry - USER:ArnavPavilion - client_name:AA - unique_id:0002 - priority:High - deadline:None
+2025-04-05 09:57:21 - INFO - Notification queued: new_entry - New entry created for client AA (ID: 0002)
+2025-04-05 09:57:21 - WARNING - No peers to broadcast entries to
+2025-04-05 09:57:23 - INFO - Trace started
+2025-04-05 09:57:23 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:23 - INFO - Trace started
+2025-04-05 09:57:23 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:34 - INFO - Trace started
+2025-04-05 09:57:34 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:34 - INFO - Trace started
+2025-04-05 09:57:34 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:34 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:8000 - message_preview:Payment of ₹8000.0 received. Total paid: ₹9000.0. 
+2025-04-05 09:57:34 - WARNING - No peers to broadcast entries to
+2025-04-05 09:57:39 - INFO - Trace started
+2025-04-05 09:57:39 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 09:57:39 - INFO - Trace started
+2025-04-05 09:57:39 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:18 - INFO - Trace started
+2025-04-05 10:06:18 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:18 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:06:18 - INFO - Notification listener started on port 12347
+2025-04-05 10:06:23 - INFO - Trace started
+2025-04-05 10:06:23 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:23 - INFO - Trace started
+2025-04-05 10:06:23 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:23 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:None - message_preview:-
+2025-04-05 10:06:23 - WARNING - No peers to broadcast entries to
+2025-04-05 10:06:23 - INFO - Trace started
+2025-04-05 10:06:23 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:31 - INFO - Trace started
+2025-04-05 10:06:31 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:44 - INFO - Trace started
+2025-04-05 10:06:44 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:44 - INFO - Trace started
+2025-04-05 10:06:44 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:44 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:500 - message_preview:Payment of ₹500.0 received. Total paid: ₹9500.0. R
+2025-04-05 10:06:44 - WARNING - No peers to broadcast entries to
+2025-04-05 10:06:44 - INFO - Trace started
+2025-04-05 10:06:44 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:54 - INFO - Trace started
+2025-04-05 10:06:54 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:06:54 - INFO - Trace started
+2025-04-05 10:06:54 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:07:03 - INFO - Trace started
+2025-04-05 10:07:03 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:07:03 - INFO - Trace started
+2025-04-05 10:07:03 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:07:03 - INFO - ACTION:update_whiteboard - USER:ArnavPavilion - content_length:33
+2025-04-05 10:09:05 - INFO - Trace started
+2025-04-05 10:09:05 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:05 - INFO - Notification listener started on port 12347
+2025-04-05 10:09:05 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:09:07 - INFO - Trace started
+2025-04-05 10:09:07 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:13 - INFO - Trace started
+2025-04-05 10:09:13 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:13 - INFO - Trace started
+2025-04-05 10:09:13 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:13 - INFO - ACTION:update_whiteboard - USER:ArnavPavilion - content_length:33
+2025-04-05 10:09:13 - WARNING - No peers to broadcast whiteboard to
+2025-04-05 10:09:13 - INFO - Notification queued: whiteboard_update - Whiteboard updated by ArnavPavilion
+2025-04-05 10:09:21 - INFO - Trace started
+2025-04-05 10:09:21 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:21 - INFO - Trace started
+2025-04-05 10:09:21 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:21 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:100 - message_preview:Payment of ₹100.0 received. Total paid: ₹9600.0. R
+2025-04-05 10:09:21 - WARNING - No peers to broadcast entries to
+2025-04-05 10:09:21 - INFO - Trace started
+2025-04-05 10:09:21 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:27 - INFO - Trace started
+2025-04-05 10:09:27 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:09:27 - INFO - Trace started
+2025-04-05 10:09:27 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:28 - INFO - Trace started
+2025-04-05 10:10:28 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:28 - INFO - Notification listener started on port 12347
+2025-04-05 10:10:28 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:10:34 - INFO - Trace started
+2025-04-05 10:10:34 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:34 - INFO - Trace started
+2025-04-05 10:10:34 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:34 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:1 - client_name:Arnav Rajurkar - payment_made:None - message_preview:-
+2025-04-05 10:10:34 - WARNING - No peers to broadcast entries to
+2025-04-05 10:10:37 - INFO - Trace started
+2025-04-05 10:10:37 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:37 - INFO - Trace started
+2025-04-05 10:10:37 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:46 - INFO - Trace started
+2025-04-05 10:10:46 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:46 - INFO - Notification listener started on port 12347
+2025-04-05 10:10:46 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:10:57 - INFO - Trace started
+2025-04-05 10:10:57 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:57 - INFO - Trace started
+2025-04-05 10:10:57 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:10:57 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:1 - client_name:Arnav Rajurkar - payment_made:None - message_preview:-
+2025-04-05 10:10:57 - WARNING - No peers to broadcast entries to
+2025-04-05 10:10:57 - INFO - Trace started
+2025-04-05 10:10:57 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:16:54 - INFO - Trace started
+2025-04-05 10:16:54 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:16:54 - INFO - Notification listener started on port 12347
+2025-04-05 10:16:54 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:16:59 - INFO - Trace started
+2025-04-05 10:16:59 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:16:59 - INFO - Trace started
+2025-04-05 10:16:59 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:12 - INFO - Trace started
+2025-04-05 10:17:12 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:12 - INFO - Trace started
+2025-04-05 10:17:12 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:12 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:200 - message_preview:Payment of ₹200.0 received. Total paid: ₹9800.0. R
+2025-04-05 10:17:12 - WARNING - No peers to broadcast entries to
+2025-04-05 10:17:12 - INFO - Trace started
+2025-04-05 10:17:12 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:26 - INFO - Trace started
+2025-04-05 10:17:26 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:36 - INFO - Trace started
+2025-04-05 10:17:36 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:36 - INFO - Trace started
+2025-04-05 10:17:36 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:36 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA - payment_made:None - message_preview:Update 2
+2025-04-05 10:17:36 - WARNING - No peers to broadcast entries to
+2025-04-05 10:17:36 - INFO - Trace started
+2025-04-05 10:17:36 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:54 - INFO - Trace started
+2025-04-05 10:17:54 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:17:54 - INFO - ACTION:complete_entry - USER:ArnavPavilion - unique_id:1 - client_name:Arnav Rajurkar
+2025-04-05 10:17:54 - INFO - Notification queued: update_entry - Entry for client Arnav Rajurkar (ID: 1) marked as completed
+2025-04-05 10:17:54 - WARNING - No peers to broadcast entries to
+2025-04-05 10:17:54 - INFO - Trace started
+2025-04-05 10:17:54 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:02 - INFO - Trace started
+2025-04-05 10:18:02 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:02 - INFO - Trace started
+2025-04-05 10:18:02 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:06 - INFO - Trace started
+2025-04-05 10:18:06 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:15 - INFO - Trace started
+2025-04-05 10:18:15 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:15 - INFO - ACTION:complete_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA
+2025-04-05 10:18:15 - INFO - Notification queued: update_entry - Entry for client AA (ID: 0002) marked as completed
+2025-04-05 10:18:15 - WARNING - No peers to broadcast entries to
+2025-04-05 10:18:15 - INFO - Trace started
+2025-04-05 10:18:15 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:19 - INFO - Trace started
+2025-04-05 10:18:19 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:19 - INFO - ACTION:complete_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA
+2025-04-05 10:18:19 - INFO - Notification queued: update_entry - Entry for client AA (ID: 0002) marked as completed
+2025-04-05 10:18:19 - WARNING - No peers to broadcast entries to
+2025-04-05 10:18:20 - INFO - Trace started
+2025-04-05 10:18:20 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:24 - INFO - Trace started
+2025-04-05 10:18:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:24 - INFO - ACTION:complete_entry - USER:ArnavPavilion - unique_id:0002 - client_name:AA
+2025-04-05 10:18:24 - INFO - Notification queued: update_entry - Entry for client AA (ID: 0002) marked as completed
+2025-04-05 10:18:24 - WARNING - No peers to broadcast entries to
+2025-04-05 10:18:24 - INFO - Trace started
+2025-04-05 10:18:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:29 - INFO - Trace started
+2025-04-05 10:18:29 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:29 - INFO - Trace started
+2025-04-05 10:18:29 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:32 - INFO - Trace started
+2025-04-05 10:18:32 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:18:36 - INFO - Trace started
+2025-04-05 10:18:36 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:21:24 - INFO - Trace started
+2025-04-05 10:21:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:21:24 - INFO - Notification listener started on port 12347
+2025-04-05 10:21:24 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:22:27 - INFO - Trace started
+2025-04-05 10:22:27 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:27 - INFO - Notification listener started on port 12347
+2025-04-05 10:22:27 - INFO - Notification system initialized on ArnavPavilion (192.168.29.132)
+2025-04-05 10:22:34 - INFO - Trace started
+2025-04-05 10:22:34 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:37 - INFO - Trace started
+2025-04-05 10:22:37 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:40 - INFO - Trace started
+2025-04-05 10:22:40 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:43 - INFO - Trace started
+2025-04-05 10:22:43 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:48 - INFO - Trace started
+2025-04-05 10:22:48 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:49 - INFO - Trace started
+2025-04-05 10:22:49 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:49 - INFO - ACTION:create_entry - USER:ArnavPavilion - client_name:B - unique_id:3 - priority:Medium - deadline:None
+2025-04-05 10:22:49 - INFO - Notification queued: new_entry - New entry created for client B (ID: 3)
+2025-04-05 10:22:49 - WARNING - No peers to broadcast entries to
+2025-04-05 10:22:49 - INFO - Trace started
+2025-04-05 10:22:49 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:56 - INFO - Trace started
+2025-04-05 10:22:56 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:56 - INFO - Trace started
+2025-04-05 10:22:56 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:22:56 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:3 - client_name:B - payment_made:500 - message_preview:Payment of ₹500.0 received. Total paid: ₹2000.0. R
+2025-04-05 10:22:56 - WARNING - No peers to broadcast entries to
+2025-04-05 10:22:56 - INFO - Trace started
+2025-04-05 10:22:56 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:04 - INFO - Trace started
+2025-04-05 10:23:04 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:07 - INFO - Trace started
+2025-04-05 10:23:07 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:07 - INFO - Trace started
+2025-04-05 10:23:07 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:24 - INFO - Trace started
+2025-04-05 10:23:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:24 - INFO - Trace started
+2025-04-05 10:23:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:24 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:3 - client_name:B - payment_made:None - message_preview:Made files again
+2025-04-05 10:23:24 - WARNING - No peers to broadcast entries to
+2025-04-05 10:23:24 - INFO - Trace started
+2025-04-05 10:23:24 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:36 - INFO - Trace started
+2025-04-05 10:23:36 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:38 - INFO - Trace started
+2025-04-05 10:23:38 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:40 - INFO - Trace started
+2025-04-05 10:23:40 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:58 - INFO - Trace started
+2025-04-05 10:23:58 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:58 - INFO - Trace started
+2025-04-05 10:23:58 - INFO - Application started, logging to logs/trace_2025-04-05.log
+2025-04-05 10:23:58 - INFO - ACTION:update_whiteboard - USER:ArnavPavilion - content_length:38
+2025-04-05 10:23:58 - WARNING - No peers to broadcast whiteboard to
+2025-04-05 10:23:58 - INFO - Notification queued: whiteboard_update - Whiteboard updated by ArnavPavilion
