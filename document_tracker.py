@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import queue
 import time
+import sys
 
 # Constants
 ENTRIES_FILE = "entries.json"
@@ -14,11 +15,15 @@ NOTIFICATION_PORT = 12347
 
 # Priority levels
 PRIORITY_LEVELS = ["Low", "Medium", "High", "Highest"]
-
 def load_entries():
     try:
         with open(ENTRIES_FILE, "r", encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            else:
+                logging.error("Invalid entries format. Expected a dictionary, initializing empty entries.")
+                return {}
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
@@ -38,19 +43,6 @@ def save_whiteboard(content):
         f.write(content)
     log_action("update_whiteboard", st.session_state.network.hostname, {"content_length": len(content)})
 
-def create_completion_file(unique_id, name, history):
-    filename = f"{unique_id}_{name}.txt"
-    content = f"Client: {name}\nID: {unique_id}\n\nHistory:\n" + "\n".join(
-        [f"[{h['timestamp']}] {h['computer']}: {h['message']}" for h in history]
-    )
-    try:
-        with open(filename, "w") as f:
-            f.write(content)
-        return filename, content
-    except IOError as e:
-        logging.error(f"File creation error: {e}")
-        return None, None
-
 def is_deadline_approaching(deadline_str):
     if not deadline_str:
         return False
@@ -60,9 +52,16 @@ def is_deadline_approaching(deadline_str):
     except ValueError:
         return False
 
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        # If running as a bundled executable, use the executable's directory.
+        return os.path.dirname(sys.executable)
+    else:
+        # Otherwise, use the script's directory.
+        return os.path.dirname(os.path.abspath(__file__))
+
 def setup_logging():
-    # Get the directory where the executable/script resides.
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = get_base_dir()
     logs_dir = os.path.join(base_dir, "logs")
     os.makedirs(logs_dir, exist_ok=True)
     
@@ -83,9 +82,6 @@ def log_action(action_type, user, details=None):
     detail_str = " - ".join(f"{k}:{v}" for k, v in details.items())
     logging.info(f"ACTION:{action_type} - USER:{user} - {detail_str}")
 
-def get_download_link(content, filename, link_text="Download History"):
-    b64 = base64.b64encode(content.encode()).decode()
-    return f'<a href="data:text/plain;base64,{b64}" download="{filename}">{link_text}</a>'
 
 class P2PNetwork:
     def __init__(self):
@@ -165,88 +161,89 @@ class P2PNetwork:
         except Exception as e:
             logging.error(f"Failed to bind broadcast listener: {e}")
     
+    
     def handle_client_connection(self, client_socket, peer_ip):
-    """Handle incoming client connections in separate threads."""
-    try:
-        data = b""
-        while (chunk := client_socket.recv(4096)):
-            data += chunk
-            # If we received less than the buffer size, assume the message is complete.
-            if len(chunk) < 4096:
-                break
+        """Handle incoming client connections in separate threads."""
+        try:
+            data = b""
+            while (chunk := client_socket.recv(4096)):
+                data += chunk
+                # If we received less than the buffer size, assume the message is complete.
+                if len(chunk) < 4096:
+                    break
 
-        if data:
-            payload = json.loads(data.decode())
-            if payload.get('type') == 'entries':
-                updated = self.process_received_entries(payload['data'], peer_ip)
-                if updated and 'notification_system' in st.session_state:
-                    st.session_state.notification_system.send_notification(
-                        "sync_update", "Entries updated from peer sync"
-                    )
-                # Send an acknowledgment back to the peer.
-                response = json.dumps({
-                    'type': 'sync_ack',
-                    'status': 'success' if updated else 'no_change'
-                }).encode()
-                client_socket.sendall(response)
+            if data:
+                payload = json.loads(data.decode())
+                if payload.get('type') == 'entries':
+                    updated = self.process_received_entries(payload['data'], peer_ip)
+                    if updated and 'notification_system' in st.session_state:
+                        st.session_state.notification_system.send_notification(
+                            "sync_update", "Entries updated from peer sync"
+                        )
+                    # Send an acknowledgment back to the peer.
+                    response = json.dumps({
+                        'type': 'sync_ack',
+                        'status': 'success' if updated else 'no_change'
+                    }).encode()
+                    client_socket.sendall(response)
 
-            elif payload.get('type') == 'whiteboard':
-                self.process_received_whiteboard(payload['data'])
+                elif payload.get('type') == 'whiteboard':
+                    self.process_received_whiteboard(payload['data'])
 
-            elif payload.get('type') == 'sync_request':
-                from datetime import datetime
-                fmt = "%d-%m-%Y %H:%M:%S"  # The timestamp format used in history entries.
+                elif payload.get('type') == 'sync_request':
+                    from datetime import datetime
+                    fmt = "%d-%m-%Y %H:%M:%S"  # The timestamp format used in history entries.
 
-                peer_version_map = payload.get('version_map', {})
-                local_entries = load_entries()
-                entries_to_send = {}
+                    peer_version_map = payload.get('version_map', {})
+                    local_entries = load_entries()
+                    entries_to_send = {}
 
-                for uid, local_entry in local_entries.items():
-                    # Only process entries that have a history.
-                    if not local_entry.get('history'):
-                        continue
-
-                    # Get the latest update from local history.
-                    local_latest = max(local_entry['history'], key=lambda h: datetime.strptime(h['timestamp'], fmt))
-                    local_last_modified = datetime.strptime(local_latest['timestamp'], fmt)
-
-                    # Get the peer's version timestamp for this entry, if any.
-                    peer_ts_str = peer_version_map.get(uid, {}).get('last_modified')
-                    if peer_ts_str:
-                        try:
-                            peer_last_modified = datetime.strptime(peer_ts_str, fmt)
-                        except Exception:
-                            # If parsing fails, treat as no valid data.
-                            peer_last_modified = None
-                    else:
-                        peer_last_modified = None
-
-                    if not peer_last_modified:
-                        # Peer has no data for this entry; send our latest update.
-                        entries_to_send[uid] = {'latest_update': local_latest}
-                    else:
-                        if local_last_modified > peer_last_modified:
-                            # Our update is more recent; send it.
-                            entries_to_send[uid] = {'latest_update': local_latest}
-                        elif local_last_modified < peer_last_modified:
-                            # Peer is ahead; do not send any data.
+                    for uid, local_entry in local_entries.items():
+                        # Only process entries that have a history.
+                        if not local_entry.get('history'):
                             continue
+
+                        # Get the latest update from local history.
+                        local_latest = max(local_entry['history'], key=lambda h: datetime.strptime(h['timestamp'], fmt))
+                        local_last_modified = datetime.strptime(local_latest['timestamp'], fmt)
+
+                        # Get the peer's version timestamp for this entry, if any.
+                        peer_ts_str = peer_version_map.get(uid, {}).get('last_modified')
+                        if peer_ts_str:
+                            try:
+                                peer_last_modified = datetime.strptime(peer_ts_str, fmt)
+                            except Exception:
+                                # If parsing fails, treat as no valid data.
+                                peer_last_modified = None
                         else:
-                            # Conflict: timestamps are equal but data might differ.
-                            # Send our update and mark it as a conflict.
-                            entries_to_send[uid] = {'latest_update': local_latest, 'conflict': True}
+                            peer_last_modified = None
 
-                response = json.dumps({
-                    'type': 'entries',
-                    'data': entries_to_send,
-                    'version_map': self.entry_version_map
-                }).encode()
-                client_socket.sendall(response)
+                        if not peer_last_modified:
+                            # Peer has no data for this entry; send our latest update.
+                            entries_to_send[uid] = {'latest_update': local_latest}
+                        else:
+                            if local_last_modified > peer_last_modified:
+                                # Our update is more recent; send it.
+                                entries_to_send[uid] = {'latest_update': local_latest}
+                            elif local_last_modified < peer_last_modified:
+                                # Peer is ahead; do not send any data.
+                                continue
+                            else:
+                                # Conflict: timestamps are equal but data might differ.
+                                # Send our update and mark it as a conflict.
+                                entries_to_send[uid] = {'latest_update': local_latest, 'conflict': True}
 
-    except Exception as e:
-        logging.error(f"Error handling client connection from {peer_ip}: {e}")
-    finally:
-        client_socket.close()
+                    response = json.dumps({
+                        'type': 'entries',
+                        'data': entries_to_send,
+                        'version_map': self.entry_version_map
+                    }).encode()
+                    client_socket.sendall(response)
+
+        except Exception as e:
+            logging.error(f"Error handling client connection from {peer_ip}: {e}")
+        finally:
+            client_socket.close()
 
     def initialize_version_map(self):
         """Initialize version map from current entries"""
@@ -340,26 +337,48 @@ class P2PNetwork:
                         logging.info(f"Entry {uid} updates from {peer_ip}: {', '.join(resolution_log)}")
             
             if updated:
-                # Save updated entries
-                save_entries(local_entries)
-                st.session_state.entries = local_entries
-                logging.info(f"Successfully updated entries from {peer_ip}")
+                # Reload entries to get any changes made by other threads
+                current_entries = load_entries()
                 
-                # Update last sync time for this peer
-                if peer_ip:
-                    self.last_sync_times[peer_ip] = time.time()
-            
-            return updated
+                # Merge our changes with current state
+                for uid, entry in local_entries.items():
+                    if uid in current_entries and entry != current_entries[uid]:
+                        # Only update entries we've modified
+                        current_entries[uid] = entry
+                
+                # Save merged result
+                save_entries(current_entries)
+                st.session_state.entries = current_entries
+        
+        return updated
 
     def update_version_for_entry(self, uid, entry):
-        """Update our version tracking for a specific entry"""
+        """Update version tracking with more consistent fields"""
+        # Create a consistent structure for all entries
         history_len = len(entry.get('history', []))
-        completion_status = 1 if entry.get('completed', False) else 0
+        
+        # Get the latest timestamp from history if available
+        latest_timestamp = None
+        if entry.get('history'):
+            try:
+                fmt = "%d-%m-%Y %H:%M:%S"
+                timestamps = [datetime.strptime(h['timestamp'], fmt) for h in entry['history']]
+                latest_timestamp = max(timestamps).strftime(fmt)
+            except Exception as e:
+                logging.error(f"Error parsing timestamps for {uid}: {e}")
+        
         self.entry_version_map[uid] = {
             'history_len': history_len,
-            'completed': completion_status,
-            'last_modified': entry.get('last_modified', datetime.now().timestamp())
+            'completed': 1 if entry.get('completed', False) else 0,
+            'last_modified': latest_timestamp or datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
+            'checksum': self._calculate_entry_checksum(entry)  # Add checksum for better conflict detection
         }
+
+    def _calculate_entry_checksum(self, entry):
+        """Calculate a simple checksum of entry content for conflict detection"""
+        import hashlib
+        content = json.dumps(entry, sort_keys=True)
+        return hashlib.md5(content.encode()).hexdigest()
 
     def broadcast_entries(self, entries_to_broadcast=None):
         """
@@ -497,6 +516,71 @@ class P2PNetwork:
             'history': [history_item]
         })
 
+    def merge_entries(self, local_entry, remote_entry, uid):
+        """More sophisticated entry merging logic"""
+        # Track what changed for logging
+        changes = []
+        merged_entry = local_entry.copy()
+        
+        # Always preserve completed status (once completed, stays completed)
+        if remote_entry.get('completed') and not local_entry.get('completed'):
+            merged_entry['completed'] = True
+            changes.append("completed status")
+        
+        # Merge history entries with duplicate detection
+        local_history = {h['timestamp']: h for h in local_entry.get('history', [])}
+        for h in remote_entry.get('history', []):
+            if h['timestamp'] not in local_history:
+                merged_entry.setdefault('history', []).append(h)
+                changes.append(f"history item from {h['computer']}")
+        
+        # Sort history by timestamp
+        if 'history' in merged_entry:
+            merged_entry['history'].sort(key=lambda x: x['timestamp'])
+        
+        # Priority - use highest priority between the two
+        priority_order = {p: i for i, p in enumerate(PRIORITY_LEVELS)}
+        local_priority = local_entry.get('priority')
+        remote_priority = remote_entry.get('priority')
+        
+        if local_priority and remote_priority:
+            if priority_order.get(remote_priority, 0) > priority_order.get(local_priority, 0):
+                merged_entry['priority'] = remote_priority
+                changes.append(f"priority to {remote_priority}")
+        
+        # Handle deadline changes
+        local_deadline = local_entry.get('deadline')
+        remote_deadline = remote_entry.get('deadline')
+        
+        if remote_deadline and (not local_deadline or 
+                            (remote_entry.get('deadline_updated', 0) > 
+                                local_entry.get('deadline_updated', 0))):
+            merged_entry['deadline'] = remote_deadline
+            merged_entry['deadline_updated'] = remote_entry.get('deadline_updated', time.time())
+            changes.append(f"deadline to {remote_deadline}")
+        
+        # Handle payment merges carefully - use most recent payment data, or combine if necessary
+        if 'total_paid' in remote_entry and 'total_paid' in local_entry:
+            try:
+                remote_paid = float(remote_entry['total_paid'])
+                local_paid = float(local_entry['total_paid'])
+                
+                # If remote is higher and there's a difference, take the remote value
+                if remote_paid > local_paid:
+                    merged_entry['total_paid'] = remote_entry['total_paid']
+                    
+                    # Recalculate remaining amount
+                    if 'total_payable' in merged_entry:
+                        total = float(merged_entry['total_payable'])
+                        merged_entry['remaining'] = str(max(0, total - remote_paid))
+                    
+                    changes.append(f"payment amount to {remote_entry['total_paid']}")
+            except ValueError:
+                logging.error(f"Payment merge error for {uid}: Invalid number format")
+    
+        # Return merged entry and list of changes
+        return merged_entry, changes
+
     def broadcast_whiteboard(self, content):
         if not self.peers:
             logging.warning("No peers to broadcast whiteboard to")
@@ -615,6 +699,171 @@ class P2PNetwork:
                 logging.error(f"Failed to broadcast {task_type} to {peer_ip}: {e}")
                 # If connection fails, consider removing peer after multiple failures
                 # This is handled in periodic_sync
+
+    def _send_with_retry(self, peer_ip, port, data, max_retries=3):
+        """Send data to a peer with retry logic"""
+        for attempt in range(max_retries):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+                    client.settimeout(5)  # 5 second timeout
+                    client.connect((peer_ip, port))
+                    client.sendall(data)
+                    
+                    # Wait for acknowledgement
+                    response = b""
+                    start_time = time.time()
+                    while time.time() - start_time < 10:  # 10 second max wait
+                        try:
+                            chunk = client.recv(4096)
+                            if not chunk:
+                                break
+                            response += chunk
+                        except socket.timeout:
+                            continue
+                    
+                    if response:
+                        return True, response
+                    
+                logging.warning(f"No response from {peer_ip} (attempt {attempt+1}/{max_retries})")
+            except (socket.timeout, ConnectionRefusedError):
+                logging.warning(f"Connection timeout to {peer_ip} (attempt {attempt+1}/{max_retries})")
+            except Exception as e:
+                logging.error(f"Error sending to {peer_ip}: {e}")
+                break  # Don't retry on non-timeout errors
+                
+            # Exponential backoff
+            time.sleep(0.5 * (2 ** attempt))
+        
+        return False, None
+
+    def sync_check_for_updates(self, peer_ip):
+        """Check for updates from a peer using checksums"""
+        local_entries = self.entries_manager.get_all_entries()
+        
+        # Build checksum map of all our entries
+        checksum_map = {}
+        for uid, entry in local_entries.items():
+            checksum_map[uid] = self._calculate_entry_checksum(entry)
+        
+        # Send our checksums to peer
+        request = {
+            'type': 'checksum_sync',
+            'source': self.ip,
+            'checksums': checksum_map
+        }
+        
+        success, response_data = self._send_with_retry(
+            peer_ip, BROADCAST_PORT, json.dumps(request).encode()
+        )
+        
+        if success and response_data:
+            try:
+                response = json.loads(response_data.decode())
+                if response.get('type') == 'checksum_diff':
+                    # Process entries that differ by checksum
+                    diff_entries = response.get('entries', {})
+                    if diff_entries:
+                        self.process_received_entries(diff_entries, peer_ip)
+                        logging.info(f"Updated {len(diff_entries)} entries from {peer_ip}")
+                        return True
+            except Exception as e:
+                logging.error(f"Error in checksum sync: {e}")
+        
+        return False
+
+class EntriesManager:
+    def __init__(self):
+        self.entries_cache = {}
+        self.entries_lock = threading.RLock()  # Reentrant lock
+        self.last_load_time = 0
+        self.last_save_time = 0
+        self.dirty = False
+        self.load_entries()  # Initial load
+        
+        # Start background save thread
+        threading.Thread(target=self._periodic_save, daemon=True).start()
+    
+    def load_entries(self, force=False):
+        """Load entries from file with caching"""
+        now = time.time()
+        
+        with self.entries_lock:
+            # Only reload if forced or file appears newer than our cache
+            try:
+                file_mtime = os.path.getmtime(ENTRIES_FILE)
+                if force or file_mtime > self.last_load_time:
+                    with open(ENTRIES_FILE, "r", encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            self.entries_cache = data
+                            self.last_load_time = now
+                            logging.info(f"Entries loaded from file ({len(data)} entries)")
+                        else:
+                            logging.error("Invalid entries format in file")
+            except FileNotFoundError:
+                self.entries_cache = {}
+                self.last_load_time = now
+            except json.JSONDecodeError:
+                logging.error("JSON decode error when loading entries")
+            except Exception as e:
+                logging.error(f"Error loading entries: {e}")
+                
+        return self.entries_cache
+    
+    def save_entries(self, force=False):
+        """Save entries to file if dirty or forced"""
+        if not self.dirty and not force:
+            return
+            
+        with self.entries_lock:
+            try:
+                with open(ENTRIES_FILE, "w", encoding='utf-8') as f:
+                    json.dump(self.entries_cache, f, indent=2)
+                self.last_save_time = time.time()
+                self.dirty = False
+                logging.debug(f"Entries saved to file ({len(self.entries_cache)} entries)")
+            except Exception as e:
+                logging.error(f"Error saving entries: {e}")
+    
+    def get_entry(self, uid):
+        """Get a specific entry with reloading if needed"""
+        with self.entries_lock:
+            # Check if we should reload from disk
+            if time.time() - self.last_load_time > 30:  # Reload every 30 seconds max
+                self.load_entries()
+                
+            return self.entries_cache.get(uid)
+    
+    def get_all_entries(self):
+        """Get all entries with reloading if needed"""
+        with self.entries_lock:
+            # Check if we should reload from disk
+            if time.time() - self.last_load_time > 30:  # Reload every 30 seconds max
+                self.load_entries()
+                
+            return self.entries_cache.copy()
+    
+    def update_entry(self, uid, entry):
+        """Update a specific entry"""
+        with self.entries_lock:
+            self.entries_cache[uid] = entry
+            self.dirty = True
+            
+    def update_entries(self, entries_dict):
+        """Update multiple entries at once"""
+        with self.entries_lock:
+            self.entries_cache.update(entries_dict)
+            self.dirty = True
+    
+    def _periodic_save(self):
+        """Periodically save entries to disk"""
+        while True:
+            time.sleep(5)  # Check every 5 seconds
+            try:
+                if self.dirty and time.time() - self.last_save_time > 5:
+                    self.save_entries()
+            except Exception as e:
+                logging.error(f"Error in periodic save: {e}")
 
 class NotificationSystem:
     def __init__(self, network):
@@ -827,19 +1076,36 @@ class NotificationSystem:
 
 def update_entry_priority(entries):
     updated = False
-    for uid, entry in entries.items():
-        if entry.get('completed', False):
-            continue
-        deadline_str = entry.get('deadline')
-        if deadline_str and is_deadline_approaching(deadline_str):
-            if entry.get('priority') != "Highest":
-                entry['priority'] = "Highest"
-                updated = True
-                log_action("priority_update", "system", {
-                    "unique_id": uid, 
-                    "client_name": entry['name'],
-                    "reason": "Deadline approaching"
-                })
+    # If entries is a list of (uid, entry_dict) tuples
+    if isinstance(entries, list):
+        for i, (uid, entry_dict) in enumerate(entries):
+            if entry_dict.get('completed', False):
+                continue
+            deadline_str = entry_dict.get('deadline')
+            if deadline_str and is_deadline_approaching(deadline_str):
+                if entry_dict.get('priority') != "Highest":
+                    entry_dict['priority'] = "Highest"
+                    updated = True
+                    log_action("priority_update", "system", {
+                        "unique_id": uid, 
+                        "client_name": entry_dict['name'],
+                        "reason": "Deadline approaching"
+                    })
+    # If entries is a dictionary with UIDs as keys
+    elif isinstance(entries, dict):
+        for uid, entry in entries.items():
+            if entry.get('completed', False):
+                continue
+            deadline_str = entry.get('deadline')
+            if deadline_str and is_deadline_approaching(deadline_str):
+                if entry.get('priority') != "Highest":
+                    entry['priority'] = "Highest"
+                    updated = True
+                    log_action("priority_update", "system", {
+                        "unique_id": uid, 
+                        "client_name": entry['name'],
+                        "reason": "Deadline approaching"
+                    })
     return updated
 
 def search_entries_by_name(entries, name_query):
@@ -847,10 +1113,24 @@ def search_entries_by_name(entries, name_query):
         return []
     
     name_query = name_query.lower()
-    return [
-        (uid, entry) for uid, entry in entries.items()
-        if name_query in entry['name'].lower()
-    ]
+    results = []
+    
+    # If entries is a list of dictionaries
+    if isinstance(entries, list):
+        for entry in entries:
+            if name_query in entry['name'].lower():
+                # If you need a unique ID for each entry, you might need to 
+                # extract it from the entry or generate one
+                results.append((entry.get('id', ''), entry))
+    
+    # If entries is a dictionary with UIDs as keys
+    elif isinstance(entries, dict):
+        results = [
+            (uid, entry) for uid, entry in entries.items()
+            if name_query in entry['name'].lower()
+        ]
+    
+    return results
 
 def submit_new_entry(client_name, unique_id, initial_message, computer_name, employee_name, priority, deadline, total_payable, total_paid):
     if not unique_id or not client_name:
@@ -1361,7 +1641,7 @@ def main():
 
     # Font size controls in sidebar
     st.sidebar.markdown("<h2 class='section-header'>Settings</h2>", unsafe_allow_html=True)
-    col_fs1, col_fs2, col_fs3 = st.sidebar.columns([1,1,2])
+    col_fs1, col_fs2, col_fs3 = st.sidebar.columns([1, 1, 2])
     if col_fs1.button("A-"):
         st.session_state.font_size = max(0.5, st.session_state.font_size - 0.1)
         st.rerun()
@@ -1397,6 +1677,7 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = value
 
+    # Periodically reload entries and whiteboard, and update entry priorities
     if time.time() - st.session_state.last_reload > 10:
         st.session_state.entries = load_entries()
         st.session_state.whiteboard = load_whiteboard()
@@ -1422,8 +1703,8 @@ def main():
         st.session_state.action_status = None
 
     active_peers = [
-    peer for peer, last_sync in st.session_state.network.last_sync_times.items() 
-    if time.time() - last_sync < 600  # 10 minutes threshold
+        peer for peer, last_sync in st.session_state.network.last_sync_times.items() 
+        if time.time() - last_sync < 600  # 10 minutes threshold
     ]
     
     st.sidebar.markdown('<h2 class="section-header">Network Status</h2>', unsafe_allow_html=True)
@@ -1434,15 +1715,29 @@ def main():
         unsafe_allow_html=True
     )
 
-    if st.sidebar.button("🔄 Manual Refresh"):
+    if st.sidebar.button("🔄 Refresh & Sync"):
+        # Refresh local data and clear peers
         st.session_state.network.peers = set()
         st.session_state.entries = load_entries()
         st.session_state.whiteboard = load_whiteboard()
+        
+        # Perform checksum sync for all peers
+        checksum_sync_results = []
+        for peer in list(st.session_state.network.peers):
+            try:
+                # Assuming sync_check_for_updates now uses load_entries()
+                result = st.session_state.network.sync_check_for_updates(peer)
+                checksum_sync_results.append(f"{peer}: {'Synced' if result else 'No change'}")
+            except Exception as e:
+                logging.error(f"Checksum sync error with {peer}: {e}")
+                checksum_sync_results.append(f"{peer}: Error")
+        
+        # Optionally display results (or log them)
+        if checksum_sync_results:
+            st.sidebar.info("Checksum Sync Results:\n" + "\n".join(checksum_sync_results))
         st.rerun()
     
     if st.session_state.active_tab in ["Client Entries", "Search Clients"]:
-        
-        # Determine the order: active tab comes first, the other second, then Shared Whiteboard.
         if st.session_state.active_tab == "Client Entries":
             first_tab = "Client Entries"
             second_tab = "Search Clients"
@@ -1450,9 +1745,7 @@ def main():
             first_tab = "Search Clients"
             second_tab = "Client Entries"
         tab_main, tab_search, tab_whiteboard = st.tabs([first_tab, second_tab, "Shared Whiteboard"])
-    
     else:
-        # Default ordering if needed
         tab_main, tab_search, tab_whiteboard = st.tabs(["Client Entries", "Search Clients", "Shared Whiteboard"])
 
     # === TAB 1: CLIENT ENTRIES ===
@@ -1500,7 +1793,7 @@ def main():
         active_entries = {
             uid: entry
             for uid, entry in st.session_state.entries.items()
-            if not entry.get('completed', False)
+            if isinstance(entry, dict) and not entry.get('completed', False)
         }
 
         def priority_sort_key(item):
@@ -1625,6 +1918,7 @@ def main():
         else:
             st.info("No active entries found.")
     
+    # === TAB 2: SEARCH CLIENTS ===
     with tab_search:
         st.markdown('<h2 class="section-header">Search Clients</h2>', unsafe_allow_html=True)
         st.markdown('<div class="info-message">Search for clients by name.</div>', unsafe_allow_html=True)
@@ -1639,6 +1933,7 @@ def main():
         
         if st.session_state.search_results is not None:
             if st.session_state.search_results:
+                from collections import defaultdict
                 client_groups = defaultdict(list)
                 for uid, entry in st.session_state.search_results:
                     client_groups[entry['name']].append((uid, entry))
@@ -1653,13 +1948,7 @@ def main():
                     
                     for uid, entry in entries_list:
                         with st.expander(f"Details for Case {uid}", expanded=False):
-                            if entry.get('completed', False):
-                                filename, content = create_completion_file(uid, entry['name'], entry['history'])
-                                if filename and content:
-                                    download_link = get_download_link(content, filename)
-                                    st.markdown(download_link, unsafe_allow_html=True)
-
-                            else:
+                            if not entry.get('completed', False):
                                 st.markdown("<hr>", unsafe_allow_html=True)
                                 new_message = st.text_area(
                                     f"Add Update for {entry['name']}",
@@ -1704,6 +1993,7 @@ def main():
             else:
                 st.markdown('<div class="search-no-results">No clients found matching your search.</div>', unsafe_allow_html=True)
     
+    # === TAB 3: SHARED WHITEBOARD ===
     with tab_whiteboard:
         st.markdown('<h2 class="section-header">Shared Whiteboard</h2>', unsafe_allow_html=True)
         st.markdown('<div class="whiteboard-note">Use this shared space for notes, reminders, and announcements. Changes are synchronized with all connected computers.</div>', unsafe_allow_html=True)
@@ -1715,17 +2005,10 @@ def main():
                 save_whiteboard(whiteboard_content)
                 st.session_state.whiteboard = whiteboard_content
                 st.session_state.network.broadcast_whiteboard(whiteboard_content)
-                st.success("Whiteboard updated and synchronized")
-                st.session_state.notification_system.send_notification(
-                    "whiteboard_update", 
-                    f"Whiteboard updated by {st.session_state.network.hostname}"
-                )
+                st.session_state.notification_system.notify_whiteboard_updated()
+                st.success("Whiteboard updated and broadcasted.")
             else:
-                st.info("No changes detected")
-
-    if st.session_state.get('form_submitted', False):
-        st.session_state.form_submitted = False
-        st.rerun()
+                st.info("No changes to update.")
 
 if __name__ == "__main__":
     main()

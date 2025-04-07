@@ -50,6 +50,7 @@ Source: "C:\Users\Arnav\Documents\document_tracker\document_tracker.py"; DestDir
 Source: "C:\Users\Arnav\Documents\document_tracker\entries.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\Arnav\Documents\document_tracker\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\Arnav\Documents\document_tracker\trace_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\Arnav\Documents\document_tracker\.streamlit\config.toml"; DestDir: "{app}\.streamlit"; Flags: ignoreversion
 
 ; Python installation - embed Python for the application
 Source: "C:\Users\Arnav\AppData\Local\Programs\Python\Python313\python.exe"; DestDir: "{app}"; Flags: ignoreversion
