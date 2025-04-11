@@ -1,0 +1,44 @@
+{
+  "0001": {
+    "name": "Arnav ",
+    "second_party": "Sandesh Builders",
+    "phone_number": "123456789",
+    "history": [
+      {
+        "timestamp": "11-04-2025 14:59:33",
+        "computer": "ArnavPavilion",
+        "employee": "ArnavPavilion",
+        "message": "Files Intialized"
+      },
+      {
+        "timestamp": "11-04-2025 15:01:34",
+        "computer": "ArnavPavilion",
+        "employee": "ArnavPavilion",
+        "message": "Payment of \u20b9500.0 received. Total paid: \u20b91000.0. Remaining: \u20b90."
+      }
+    ],
+    "priority": "High",
+    "deadline": "",
+    "total_payable": "1000.0",
+    "total_paid": "1000.0",
+    "remaining": "0"
+  },
+  "0002": {
+    "name": "Saanvi",
+    "second_party": "Sandesh Builders",
+    "phone_number": "123456787",
+    "history": [
+      {
+        "timestamp": "11-04-2025 14:59:58",
+        "computer": "ArnavPavilion",
+        "employee": "ArnavPavilion",
+        "message": "Files Intialized"
+      }
+    ],
+    "priority": "High",
+    "deadline": "",
+    "total_payable": "1000.0",
+    "total_paid": "600.0",
+    "remaining": "400.0"
+  }
+}

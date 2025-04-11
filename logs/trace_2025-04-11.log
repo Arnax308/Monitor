@@ -1,0 +1,61 @@
+2025-04-11 14:51:45 - SESSION-20250411-145145 - INFO - 
+==================================================
+NEW SESSION STARTED
+==================================================
+2025-04-11 14:51:45 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:51:45 - SESSION-20250411-145145 - INFO - Application session started (PID: 22860)
+2025-04-11 14:51:45 - SESSION-20250411-145145 - INFO - Notification system initialized on port 12347
+2025-04-11 14:51:45 - SESSION-20250411-145145 - INFO - Notification listener started on port 12347
+2025-04-11 14:52:37 - SESSION-20250411-145145 - INFO - 
+==================================================
+NEW SESSION STARTED
+==================================================
+2025-04-11 14:52:37 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:52:37 - SESSION-20250411-145145 - INFO - Application session started (PID: 22860)
+2025-04-11 14:52:37 - SESSION-20250411-145145 - INFO - Notification listener started on port 12348
+2025-04-11 14:52:37 - SESSION-20250411-145145 - INFO - Notification system initialized on port 12348
+2025-04-11 14:52:41 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:52:41 - SESSION-20250411-145145 - INFO - ACTION:complete_entry - USER:ArnavPavilion - unique_id:0003 - client_name:BB
+2025-04-11 14:52:41 - SESSION-20250411-145145 - INFO - Notification queued: update_entry - Entry for client BB (ID: 0003) marked as completed
+2025-04-11 14:52:41 - SESSION-20250411-145145 - WARNING - No peers to broadcast entries to
+2025-04-11 14:52:41 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:52:48 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:52:58 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:52:59 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:05 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:08 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:17 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:23 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:24 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:25 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:25 - SESSION-20250411-145145 - INFO - ACTION:create_entry - USER:ArnavPavilion - client_name:Arnav - unique_id:0100 - priority:High - deadline:None
+2025-04-11 14:53:25 - SESSION-20250411-145145 - INFO - Notification queued: new_entry - New entry created for client Arnav (ID: 0100)
+2025-04-11 14:53:25 - SESSION-20250411-145145 - WARNING - No peers to broadcast entries to
+2025-04-11 14:53:25 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:32 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:39 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:44 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:49 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:49 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:49 - SESSION-20250411-145145 - INFO - ACTION:create_entry - USER:ArnavPavilion - client_name:Saanvi - unique_id:0101 - priority:High - deadline:None
+2025-04-11 14:53:49 - SESSION-20250411-145145 - INFO - Notification queued: new_entry - New entry created for client Saanvi (ID: 0101)
+2025-04-11 14:53:49 - SESSION-20250411-145145 - WARNING - No peers to broadcast entries to
+2025-04-11 14:53:49 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:55 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:53:57 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:56:45 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:56:45 - SESSION-20250411-145145 - INFO - ACTION:update_entry - USER:ArnavPavilion - unique_id:0100 - client_name:Arnav - payment_made:100 - message_preview:Payment of ₹100.0 received. Total paid: ₹600.0. Re
+2025-04-11 14:56:45 - SESSION-20250411-145145 - WARNING - No peers to broadcast entries to
+2025-04-11 14:56:45 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:57:53 - SESSION-20250411-145145 - INFO - 
+==================================================
+NEW SESSION STARTED
+==================================================
+2025-04-11 14:57:53 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:57:53 - SESSION-20250411-145145 - INFO - Application session started (PID: 22860)
+2025-04-11 14:57:53 - SESSION-20250411-145145 - INFO - Notification system initialized on port 12349
+2025-04-11 14:57:53 - SESSION-20250411-145145 - INFO - Notification listener started on port 12349
+2025-04-11 14:57:58 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:58:00 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:58:17 - SESSION-20250411-145145 - INFO - Application started, logging to None
+2025-04-11 14:58:18 - SESSION-20250411-145145 - INFO - Application started, logging to None
