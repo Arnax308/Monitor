@@ -3,6 +3,7 @@ import json, os, socket, threading, time, base64, logging, queue, concurrent.fut
 from datetime import datetime, timedelta
 from collections import defaultdict
 import sys
+import zmq
 
 # Constants
 ENTRIES_FILE = "entries.json"
@@ -1157,129 +1158,71 @@ class EntriesManager:
                 logging.error(f"Error in periodic save: {e}")
 
 class NotificationSystem:
-    def __init__(self, network, base_port=NOTIFICATION_PORT):
+    def __init__(self, network, base_port=NOTIFICATION_PORT, peer_addresses=None):
         self.network = network
         self.hostname = network.hostname
         self.ip = network.ip
         self.running = True
-        self.notification_queue = queue.Queue()
         self.notification_history = []
         self.max_history = 50
         self.notification_lock = threading.Lock()
-        self.listening_port = self._find_available_port(base_port)
-        
-        # Initialize logging to show session start only once per actual startup
-        if not hasattr(st.session_state, 'logging_initialized'):
-            st.session_state.logging_initialized = True
-            setup_logging()
-            logging.info(f"Application session started (PID: {os.getpid()})")
-        
-        # Start notification threads
-        threading.Thread(target=self.notification_listener, daemon=True).start()
-        threading.Thread(target=self.notification_processor, daemon=True).start()
-        
-        logging.info(f"Notification system initialized on port {self.listening_port}")
 
-    def _find_available_port(self, base_port):
-        """Dynamically find an available port starting from base_port"""
-        port = base_port
-        while port < 65535:
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                    s.bind(('', port))
-                    return port
-            except OSError:
-                port += 1
-        raise OSError("No available ports for notification system")
+        # ZeroMQ setup
+        self.context = zmq.Context()
+        # Publisher socket for sending notifications
+        self.pub = self.context.socket(zmq.PUB)
+        self.pub.bind(f"tcp://*:{base_port}")
+
+        # Subscriber socket for receiving notifications
+        self.sub = self.context.socket(zmq.SUB)
+        self.sub.setsockopt_string(zmq.SUBSCRIBE, "")  # subscribe to all topics
+        # Connect to each peer's PUB endpoint
+        for addr in (peer_addresses or []):
+            self.sub.connect(f"tcp://{addr}:{base_port}")
+
+        # Start listener thread
+        threading.Thread(target=self.notification_listener, daemon=True).start()
+
+        logging.info(f"Notification system (ZeroMQ) initialized on port {base_port}")
 
     def notification_listener(self):
-        listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            listener.bind(('', self.listening_port))
-            logging.info(f"Notification listener started on port {self.listening_port}")
-            while self.running:
-                try:
-                    listener.settimeout(1.0)
-                    data, _ = listener.recvfrom(1024)
-                    notif = json.loads(data.decode())
-                    self._handle_notification(notif)
-                except socket.timeout:
-                    continue
-                except json.JSONDecodeError:
-                    logging.warning("Received invalid notification format")
-                except Exception as e:
-                    logging.error(f"Notification listener error: {e}")
-        except Exception as e:
-            logging.error(f"Failed to bind notification listener: {e}")
-            # Try to switch port if binding fails
-            new_port = self._find_available_port(self.listening_port + 1)
-            if new_port != self.listening_port:
-                self.listening_port = new_port
-                logging.warning(f"Switched to new notification port: {new_port}")
-                # Restart listener thread
-                threading.Thread(target=self.notification_listener, daemon=True).start()
-            
-    def notification_processor(self):
-        """Process notifications from queue and send to peers"""
+        """Listen for incoming notifications over ZeroMQ"""
         while self.running:
             try:
-                # Get the next notification from the queue with a timeout
-                try:
-                    notification = self.notification_queue.get(timeout=1.0)
-                except queue.Empty:
-                    continue
-                
-                # Generate a notification ID for deduplication
-                notification_id = f"{notification['source']}:{notification['timestamp']}:{notification['type']}"
-                notification['id'] = notification_id
-                
-                # Send to all peers
-                self._send_to_all_peers(notification)
-                
-                # Mark as done
-                self.notification_queue.task_done()
+                notif = self.sub.recv_json(flags=zmq.NOBLOCK)
+                self._handle_notification(notif)
+            except zmq.Again:
+                time.sleep(0.1)
             except Exception as e:
-                logging.error(f"Error in notification processor: {e}")
+                logging.error(f"Notification listener error: {e}")
 
     def _handle_notification(self, notification):
-        """Handle incoming notifications from peers"""
-        # Check for duplicates using notification ID
+        """Same logic as before to dedupe and display"""
         notification_id = notification.get('id')
         if notification_id:
             with self.notification_lock:
-                # Skip if we've seen this notification before
                 if notification_id in [n.get('id') for n in self.notification_history]:
                     return
-                
-                # Add to history for deduplication
                 self.notification_history.append(notification)
                 if len(self.notification_history) > self.max_history:
-                    self.notification_history.pop(0)  # Remove oldest
+                    self.notification_history.pop(0)
 
-        # Get notification details
         notif_type = notification.get('type', 'unknown')
         message = notification.get('message', 'No message')
         source = notification.get('source', 'Unknown')
-        formatted_message = f"{source}: {message}"
-        
-        # Log the notification
-        logging.info(f"Notification: [{notif_type}] {formatted_message}")
-        
-        # Display notification in the UI based on type
+        formatted = f"{source}: {message}"
+        logging.info(f"Notification: [{notif_type}] {formatted}")
         try:
             if notif_type in ['new_entry', 'entry_update', 'whiteboard_update']:
-                st.info(formatted_message)
+                st.info(formatted)
             elif notif_type == 'entry_completed':
-                st.success(formatted_message)
+                st.success(formatted)
             elif notif_type in ['priority_update', 'deadline_update']:
-                st.warning(formatted_message)
+                st.warning(formatted)
             elif notif_type == 'sync_update':
-                st.info(formatted_message)
+                st.info(formatted)
             else:
-                st.info(formatted_message)
-                
-            # Update UI state if needed
+                st.info(formatted)
             if notif_type == 'reload_entries' and 'entries' in st.session_state:
                 st.session_state.entries = load_entries()
                 st.rerun()
@@ -1287,7 +1230,7 @@ class NotificationSystem:
             logging.error(f"Error displaying notification: {e}")
 
     def send_notification(self, notification_type, message, details=None):
-        """Queue a notification to be sent to all peers"""
+        """Queue and broadcast a notification via ZeroMQ"""
         notification = {
             'type': notification_type,
             'message': message,
@@ -1295,60 +1238,22 @@ class NotificationSystem:
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'details': details or {}
         }
-        
-        # Generate a notification ID for deduplication
         notification_id = f"{notification['source']}:{notification['timestamp']}:{notification['type']}"
         notification['id'] = notification_id
-        
-        # Add to local history first
+
+        # Local history & display
         with self.notification_lock:
             self.notification_history.append(notification)
             if len(self.notification_history) > self.max_history:
-                self.notification_history.pop(0)  # Remove oldest
-        
-        # Display locally first
+                self.notification_history.pop(0)
         self._handle_notification(notification)
-        
-        # Queue for sending to peers
-        self.notification_queue.put(notification)
-        logging.info(f"Notification queued: {notification_type} - {message}")
 
-    def _send_to_all_peers(self, notification):
-        """Send notification to all peers with updated port handling"""
-        payload = json.dumps(notification).encode()
-        for peer_ip in list(self.network.peers):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(1)
-                    sock.sendto(payload, (peer_ip, self.listening_port))
-            except Exception as e:
-                logging.error(f"Failed to send notification to {peer_ip}: {e}")
-                
-    def setup_logging():
-        if not hasattr(st.session_state, 'log_initialized'):
-            st.session_state.log_initialized = True
-            base_dir = get_base_dir()
-            logs_dir = os.path.join(base_dir, "logs")
-            os.makedirs(logs_dir, exist_ok=True)
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            log_file = os.path.join(logs_dir, f"trace_{today}.log")
-            
-            session_id = f"SESSION-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            
-            logging.basicConfig(
-                filename=log_file,
-                level=logging.INFO,
-                format=f'%(asctime)s - {session_id} - %(levelname)s - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            )
-            
-            boundary = "="*50
-            logging.info(f"\n{boundary}\nNEW SESSION STARTED\n{boundary}")
-                    # Handle transient errors but don't retry here - let periodic sync handle
+        # Broadcast
+        self.pub.send_json(notification)
+        logging.info(f"Notification published: {notification_type} - {message}")
 
+    # Convenience methods (same names as before)
     def notify_entry_created(self, entry_id, entry_name):
-        """Notification for a new entry"""
         self.send_notification(
             "new_entry",
             f"New entry created: {entry_name}",
@@ -1356,7 +1261,6 @@ class NotificationSystem:
         )
 
     def notify_entry_updated(self, entry_id, entry_name, update_type="general"):
-        """Notification for an entry update"""
         self.send_notification(
             "entry_update",
             f"Entry updated: {entry_name} ({update_type})",
@@ -1364,7 +1268,6 @@ class NotificationSystem:
         )
 
     def notify_entry_completed(self, entry_id, entry_name):
-        """Notification for a completed entry"""
         self.send_notification(
             "entry_completed",
             f"Entry completed: {entry_name}",
@@ -1372,7 +1275,6 @@ class NotificationSystem:
         )
 
     def notify_priority_changed(self, entry_id, entry_name, new_priority):
-        """Notification for a priority change"""
         self.send_notification(
             "priority_update",
             f"Priority changed to {new_priority} for: {entry_name}",
@@ -1380,7 +1282,6 @@ class NotificationSystem:
         )
 
     def notify_deadline_changed(self, entry_id, entry_name, new_deadline):
-        """Notification for a deadline change"""
         self.send_notification(
             "deadline_update",
             f"Deadline updated to {new_deadline} for: {entry_name}",
@@ -1388,11 +1289,10 @@ class NotificationSystem:
         )
 
     def notify_whiteboard_updated(self):
-        """Notification for whiteboard updates"""
         self.send_notification(
             "whiteboard_update",
             f"Whiteboard updated by {self.hostname}",
-            {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")} 
         )
 
     def notify_visitor_event(self, visitor_name, event_type):
@@ -1400,67 +1300,14 @@ class NotificationSystem:
             "visitor_" + event_type,
             f"Visitor {visitor_name} {event_type.replace('_',' ')}",
             {"visitor": visitor_name}
-    )
+        )
 
     def stop(self):
         """Stop the notification system"""
         self.running = False
         logging.info("Notification system stopped")
 
-def update_entry_priority(entries):
-    updated = False
-    # If entries is a list of (uid, entry_dict) tuples
-    if isinstance(entries, list):
-        for i, (uid, entry_dict) in enumerate(entries):
-            if entry_dict.get('completed', False):
-                continue
-            deadline_str = entry_dict.get('deadline')
-            if deadline_str and is_deadline_approaching(deadline_str):
-                if entry_dict.get('priority') != "Highest":
-                    entry_dict['priority'] = "Highest"
-                    updated = True
-                    log_action("priority_update", "system", {
-                        "unique_id": uid, 
-                        "client_name": entry_dict['name'],
-                        "reason": "Deadline approaching"
-                    })
-    # If entries is a dictionary with UIDs as keys
-    elif isinstance(entries, dict):
-        for uid, entry in entries.items():
-            if entry.get('completed', False):
-                continue
-            deadline_str = entry.get('deadline')
-            if deadline_str and is_deadline_approaching(deadline_str):
-                if entry.get('priority') != "Highest":
-                    entry['priority'] = "Highest"
-                    updated = True
-                    log_action("priority_update", "system", {
-                        "unique_id": uid, 
-                        "client_name": entry['name'],
-                        "reason": "Deadline approaching"
-                    })
-    return updated
-
-def search_entries_by_name(entries, name_query):
-    if not name_query:
-        return []
-    q = name_query.lower()
-    results = []
-    for uid, entry in entries.items():
-        name_match = q in entry['name'].lower()
-        sp_match   = q in entry.get('second_party', '').lower()
-        if name_match or sp_match:
-            results.append((uid, entry))
-    return results
-
-def notify_visitor_event(self, visitor_name, event_type):
-    self.send_notification(
-        "visitor_" + event_type,
-        f"Visitor {visitor_name} {event_type.replace('_',' ')}",
-        {"visitor": visitor_name}
-    )
-
-NotificationSystem.notify_visitor_event = notify_visitor_event
+        
 def submit_new_entry(client_name, unique_id, initial_message, computer_name, employee_name, priority, deadline, total_payable, total_paid, second_party, phone_number):
     if not unique_id or not client_name:
         return False, "Both client name and unique ID are required"
@@ -1762,11 +1609,25 @@ def set_page_style():
         background-color: #1a1a1a;
         color: #e0e0e0;
         transition: background-color 0.3s ease;
-        font-size: 1.15rem;
+        font-size: 1.5rem;
     }}
     .stTabs [aria-selected="true"] {{
         background-color: #2979ff;
         color: white;
+    }}
+    .stTabs + .stTabs [data-baseweb="tab-list"] {{
+        background-color: #1a1a1a;           
+        margin-top: 0.5rem;                  
+    }}
+    .stTabs + .stTabs [data-baseweb="tab"] {{
+        font-size: 1rem;                     
+        padding: 8px 12px;                   
+        border-radius: 4px 4px 0 0;          
+    }}
+    .stTabs + .stTabs [data-baseweb="tab"][aria-selected="true"] {{
+        background-color: #2979ff !important; 
+        color: white !important;
+        box-shadow: inset 0 -3px 0 0 #ff5252; 
     }}
     .stTable {{
         border-collapse: collapse;
@@ -2099,290 +1960,478 @@ def main():
         st.rerun()
     
     # Create tabs based on active_tab
-    tabs = ["Client Entries","Search Clients","Shared Whiteboard","Visitor Management Center"]
-    tab_main, tab_search, tab_whiteboard, tab_visitors = st.tabs(tabs)
+    main_tabs = ["Clients", "Visitors", "Whiteboard"]
+    tab_clients, tab_visitors_main, tab_whiteboard_main = st.tabs(main_tabs)
     
-    # === TAB 1: CLIENT ENTRIES ===
-    with tab_main:
-        st.markdown('<h2 class="section-header">Client Entries</h2>', unsafe_allow_html=True)
+    # === TAB 1: CLIENTS ===
+    with tab_clients:
+        client_sub = ["Client Entries", "Search Client Entries"]
+        tab_client_entries, tab_search_clients = st.tabs(client_sub)
+        with tab_client_entries:
+            st.markdown('<h2 class="section-header">Client Entries</h2>', unsafe_allow_html=True)
 
-        with st.expander("Create New Entry", expanded=True):
-            st.markdown('<h3 class="tab-header">New Client Entry</h3>', unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                client_name = st.text_input("Client Name", key="client_name")
-                unique_id = st.text_input("Unique ID", key="unique_id")
-                employee_name = st.text_input("Employee Name", value=st.session_state.network.hostname)
-            with col2:
-                priority = st.selectbox("Priority", PRIORITY_LEVELS, index=1)
-                deadline = st.date_input("Deadline (optional)", value=None)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                total_payable = st.text_input("Total Payable Amount (₹)", value="")
-            with col2:
-                total_paid = st.text_input("Initial Payment (₹)", value="0")
-
-            second_party = st.text_input("Second Party", key="second_party")
-            phone_number = st.text_input("Phone Number", key="phone_number")
+            with st.expander("Create New Entry", expanded=True):
+                st.markdown('<h3 class="tab-header">New Client Entry</h3>', unsafe_allow_html=True)
                 
-            initial_message = st.text_area("Initial Notes", key="initial_message", height=120)
-            
-            if st.button("Submit New Entry"):
-                st.session_state.active_tab = "Client Entries"
-                deadline_str = deadline.strftime("%Y-%m-%d") if deadline else ""
-                success, message = submit_new_entry(
-                    client_name=client_name,
-                    unique_id=unique_id,
-                    initial_message=initial_message,
-                    computer_name=st.session_state.network.hostname,
-                    employee_name=employee_name,  
-                    priority=priority,
-                    deadline=deadline_str,
-                    total_payable=total_payable,
-                    total_paid=total_paid,
-                    second_party=second_party,    
-                    phone_number=phone_number
-                )
-                st.session_state.action_status = (success, message)
-                st.session_state.form_submitted = True
-                # Immediately show results
-                st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    client_name = st.text_input("Client Name", key="client_name")
+                    unique_id = st.text_input("Unique ID", key="unique_id")
+                    employee_name = st.text_input("Employee Name", value=st.session_state.network.hostname)
+                with col2:
+                    priority = st.selectbox("Priority", PRIORITY_LEVELS, index=1)
+                    deadline = st.date_input("Deadline (optional)", value=None)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    total_payable = st.text_input("Total Payable Amount (₹)", value="")
+                with col2:
+                    total_paid = st.text_input("Initial Payment (₹)", value="0")
 
-        # Show only ACTIVE (not completed) entries
-        active_entries = {
-            uid: entry
-            for uid, entry in st.session_state.entries.items()
-            if isinstance(entry, dict) and not entry.get('completed', False)
-        }
+                second_party = st.text_input("Second Party", key="second_party")
+                phone_number = st.text_input("Phone Number", key="phone_number")
+                    
+                initial_message = st.text_area("Initial Notes", key="initial_message", height=120)
+                
+                if st.button("Submit New Entry"):
+                    st.session_state.active_tab = "Client Entries"
+                    deadline_str = deadline.strftime("%Y-%m-%d") if deadline else ""
+                    success, message = submit_new_entry(
+                        client_name=client_name,
+                        unique_id=unique_id,
+                        initial_message=initial_message,
+                        computer_name=st.session_state.network.hostname,
+                        employee_name=employee_name,  
+                        priority=priority,
+                        deadline=deadline_str,
+                        total_payable=total_payable,
+                        total_paid=total_paid,
+                        second_party=second_party,    
+                        phone_number=phone_number
+                    )
+                    st.session_state.action_status = (success, message)
+                    st.session_state.form_submitted = True
+                    # Immediately show results
+                    st.rerun()
 
-        def priority_sort_key(item):
-            uid, entry = item
-            return (-PRIORITY_LEVELS.index(entry.get('priority', 'Medium')), entry['name'])
+            # Show only ACTIVE (not completed) entries
+            active_entries = {
+                uid: entry
+                for uid, entry in st.session_state.entries.items()
+                if isinstance(entry, dict) and not entry.get('completed', False)
+            }
 
-        sorted_active_entries = sorted(active_entries.items(), key=priority_sort_key)
+            def priority_sort_key(item):
+                uid, entry = item
+                return (-PRIORITY_LEVELS.index(entry.get('priority', 'Medium')), entry['name'])
 
-        if sorted_active_entries:
-            st.markdown(f'<h3 class="tab-header">Active Entries ({len(sorted_active_entries)})</h3>', unsafe_allow_html=True)
-            
-            for uid, entry in sorted_active_entries:
-                with st.expander(f"{entry['name']} (ID: {uid})", expanded=False):
-                    priority_class = entry['priority'].lower()
+            sorted_active_entries = sorted(active_entries.items(), key=priority_sort_key)
 
-                    deadline_text = ""
-                    if entry.get('deadline'):
-                        deadline_date = datetime.strptime(entry['deadline'], "%Y-%m-%d")
-                        days_left = (deadline_date - datetime.now()).days
-                        if days_left < 0:
-                            deadline_text = f"(Overdue by {abs(days_left)} days)"
-                        elif days_left == 0:
-                            deadline_text = "(Due today)"
-                        else:
-                            deadline_text = f"({days_left} days left)"
+            if sorted_active_entries:
+                st.markdown(f'<h3 class="tab-header">Active Entries ({len(sorted_active_entries)})</h3>', unsafe_allow_html=True)
+                
+                for uid, entry in sorted_active_entries:
+                    with st.expander(f"{entry['name']} (ID: {uid})", expanded=False):
+                        priority_class = entry['priority'].lower()
 
-                    total_payable = float(entry.get('total_payable', '0'))
-                    total_paid = float(entry.get('total_paid', '0'))
-                    remaining = float(entry.get('remaining', '0'))
+                        deadline_text = ""
+                        if entry.get('deadline'):
+                            deadline_date = datetime.strptime(entry['deadline'], "%d-%m-%Y")
+                            days_left = (deadline_date - datetime.now()).days
+                            if days_left < 0:
+                                deadline_text = f"(Overdue by {abs(days_left)} days)"
+                            elif days_left == 0:
+                                deadline_text = "(Due today)"
+                            else:
+                                deadline_text = f"({days_left} days left)"
 
-                    st.markdown(
-                        f"""
-                        <div class="entry-card">
-                            <div class="entry-card-header">
-                                <span class="priority-{priority_class}">{entry['priority']}</span>
-                                <span class='status-badge-active'>Active</span>
+                        total_payable = float(entry.get('total_payable', '0'))
+                        total_paid = float(entry.get('total_paid', '0'))
+                        remaining = float(entry.get('remaining', '0'))
+
+                        st.markdown(
+                            f"""
+                            <div class="entry-card">
+                                <div class="entry-card-header">
+                                    <span class="priority-{priority_class}">{entry['priority']}</span>
+                                    <span class='status-badge-active'>Active</span>
+                                </div>
+                                <h2 class="card-title">{entry['name']} (ID: {uid})</h2>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        if entry.get('deadline'):
+                            st.markdown(
+                                f"<div class='entry-card-deadline'>Deadline: {entry['deadline']} {deadline_text}</div>",
+                                unsafe_allow_html=True
+                            )
+
+                        st.markdown(f"**Phone:** {entry.get('phone_number','')}")
+                        st.markdown(f"**Second Party:** {entry.get('second_party','')}")
+
+                        st.markdown("<hr/>", unsafe_allow_html=True)
+
+                        st.markdown(
+                            """
+                            <div class="entry-card-section">
+                                <strong>Payment Details:</strong>
                             </div>
-                            <h2 class="card-title">{entry['name']} (ID: {uid})</h2>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-                    if entry.get('deadline'):
-                        st.markdown(
-                            f"<div class='entry-card-deadline'>Deadline: {entry['deadline']} {deadline_text}</div>",
+                            """,
                             unsafe_allow_html=True
                         )
+                        st.write(f"**Total Payable:** ₹{total_payable}")
+                        st.write(f"**Total Paid:** ₹{total_paid}")
 
-                    st.markdown(
-                        """
-                        <div class="entry-card-section">
-                            <strong>Payment Details:</strong>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    st.write(f"**Total Payable:** ₹{total_payable}")
-                    st.write(f"**Total Paid:** ₹{total_paid}")
+                        if remaining > 0:
+                            st.markdown(f"**Remaining:** <span class='remaining-amount'>₹{remaining}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"**Remaining:** <span class='fully-paid'>Fully Paid</span>", unsafe_allow_html=True)
 
-                    if remaining > 0:
-                        st.markdown(f"**Remaining:** <span class='remaining-amount'>₹{remaining}</span>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"**Remaining:** <span class='fully-paid'>Fully Paid</span>", unsafe_allow_html=True)
+                        col1, col2 = st.columns([3,1])
+                        with col2:
+                            # 1) Edit button
+                            if st.button("Edit Entry", key=f"edit_entry_{uid}"):
+                                st.session_state.editing_entry = uid
+                                st.rerun()
 
-                    st.markdown("<hr/>", unsafe_allow_html=True)
+                        # 2) Inline edit form
+                        if st.session_state.get("editing_entry") == uid:
+                            # Pre-fill current values
+                            new_uid          = st.text_input("Unique ID", value=uid, key=f"new_uid_{uid}")
+                            new_name         = st.text_input("Name", value=entry['name'], key=f"new_name_{uid}")
+                            new_phone        = st.text_input("Phone Number", value=entry.get('phone_number',''), key=f"new_phone_{uid}")
+                            new_second_party = st.text_input("Second Party", value=entry.get('second_party',''), key=f"new_sp_{uid}")
+                            new_deadline     = st.text_input("Deadline (DD-MM-YYYY)", value=entry.get('deadline',''), key=f"new_deadline_{uid}")
 
-                    new_message = st.text_area(
-                        f"Add Update for {entry['name']}",
-                        key=f"update_{uid}",
-                        height=100,
-                        placeholder="Type your update here..."
-                    )
-                    employee_update = st.text_input(
-                        "Employee Name",
-                        value=st.session_state.network.hostname,
-                        key=f"update_employee_{uid}"
-                    )
+                            if st.button("Save Changes", key=f"save_entry_{uid}"):
+                                # Validation
+                                if not new_uid.strip() or not new_name.strip() or not new_phone.strip():
+                                    st.error("Unique ID, Name and Phone cannot be empty.")
+                                else:
+                                    entries = load_entries()
+                                    # 3) Handle Unique ID change
+                                    updated = entries.pop(uid)
+                                    # apply edits
+                                    updated['name']          = new_name.strip()
+                                    updated['phone_number']  = new_phone.strip()
+                                    updated['second_party']  = new_second_party.strip()
+                                    updated['deadline']      = new_deadline.strip()
+                                    # re-insert under new key
+                                    entries[new_uid.strip()] = updated
 
-                    payment_made = ""
-                    if remaining > 0:
-                        st.markdown("<div class='payment-section'>Payment Update:</div>", unsafe_allow_html=True)
-                        payment_made = st.text_input(
-                            "Payment Amount (₹)",
-                            key=f"payment_{uid}",
-                            placeholder="e.g. 500"
+                                    # persist & broadcast
+                                    save_entries(entries)
+                                    st.session_state.entries = entries
+                                    st.session_state.network.broadcast_entries({ new_uid.strip(): updated })
+
+                                    st.success(f"Entry '{new_name.strip()}' (ID: {new_uid.strip()}) updated.")
+                                    # exit edit mode
+                                    del st.session_state["editing_entry"]
+                                    st.rerun()
+
+                        st.markdown("<hr/>", unsafe_allow_html=True)
+
+                        new_message = st.text_area(
+                            f"Add Update for {entry['name']}",
+                            key=f"update_{uid}",
+                            height=100,
+                            placeholder="Type your update here..."
+                        )
+                        employee_update = st.text_input(
+                            "Employee Name",
+                            value=st.session_state.network.hostname,
+                            key=f"update_employee_{uid}"
                         )
 
-                    col_btn1, col_btn2 = st.columns([1, 1])
-                    with col_btn1:
-                        if st.button("Submit Update", key=f"btn_update_{uid}"):
-                            success, message = update_entry(
-                                unique_id=uid,
-                                message=new_message,
-                                computer_name=st.session_state.network.hostname,
-                                employee_name=employee_update,
-                                payment_made=payment_made if remaining > 0 else None
+                        payment_made = ""
+                        if remaining > 0:
+                            st.markdown("<div class='payment-section'>Payment Update:</div>", unsafe_allow_html=True)
+                            payment_made = st.text_input(
+                                "Payment Amount (₹)",
+                                key=f"payment_{uid}",
+                                placeholder="e.g. 500"
                             )
-                            st.session_state.action_status = (success, message)
-                            st.session_state.form_submitted = True
-                            # Immediately show results
-                            st.rerun()
-                    with col_btn2:
-                        if st.button("Mark Completed", key=f"btn_complete_{uid}"):
-                            employee_name = st.session_state.network.hostname
-                            success, message = mark_entry_completed(
-                                unique_id=uid,
-                                computer_name=st.session_state.network.hostname,
-                                employee_name=employee_name
+
+                        col_btn1, col_btn2 = st.columns([1, 1])
+                        with col_btn1:
+                            if st.button("Submit Update", key=f"btn_update_{uid}"):
+                                success, message = update_entry(
+                                    unique_id=uid,
+                                    message=new_message,
+                                    computer_name=st.session_state.network.hostname,
+                                    employee_name=employee_update,
+                                    payment_made=payment_made if remaining > 0 else None
+                                )
+                                st.session_state.action_status = (success, message)
+                                st.session_state.form_submitted = True
+                                # Immediately show results
+                                st.rerun()
+                        with col_btn2:
+                            if st.button("Mark Completed", key=f"btn_complete_{uid}"):
+                                employee_name = st.session_state.network.hostname
+                                success, message = mark_entry_completed(
+                                    unique_id=uid,
+                                    computer_name=st.session_state.network.hostname,
+                                    employee_name=employee_name
+                                )
+                                st.session_state.action_status = (success, message)
+                                st.session_state.form_submitted = True
+                                # Immediately show results
+                                st.rerun()
+
+                        st.markdown("<hr/>", unsafe_allow_html=True)
+
+                        st.markdown("<h3>History</h3>", unsafe_allow_html=True)
+                        for item in reversed(entry['history']):
+                            msg_html = item['message'].replace("\n", "<br>")
+                            st.markdown(
+                                f"<div class='history-item'><strong>{item['timestamp']} - {item['computer']}:</strong><br>{msg_html}</div>",
+                                unsafe_allow_html=True
                             )
-                            st.session_state.action_status = (success, message)
-                            st.session_state.form_submitted = True
-                            # Immediately show results
-                            st.rerun()
-
-                    st.markdown("<hr/>", unsafe_allow_html=True)
-
-                    st.markdown("<h3>History</h3>", unsafe_allow_html=True)
-                    for item in reversed(entry['history']):
-                        msg_html = item['message'].replace("\n", "<br>")
-                        st.markdown(
-                            f"<div class='history-item'><strong>{item['timestamp']} - {item['computer']}:</strong><br>{msg_html}</div>",
-                            unsafe_allow_html=True
-                        )
-                    st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.info("No active entries found.")
-    
-    # === TAB 2: SEARCH CLIENTS ===
-    with tab_search:
-        st.markdown('<h2 class="section-header">Search Clients</h2>', unsafe_allow_html=True)
-        st.markdown('<div class="info-message">Search for clients by name.</div>', unsafe_allow_html=True)
-        
-        search_query = st.text_input("Enter client name to search", key="search_query")
-        
-        if st.button("Search"):
-            # Set the active tab to Search Clients
-            st.session_state.active_tab = "Search Clients"
-            st.session_state.current_search_query = search_query
-            search_results = search_entries_by_name(st.session_state.entries, search_query)
-            st.session_state.search_results = search_results
-            # Don't rerun here - results will be shown directly
-        
-        if st.session_state.search_results is not None:
-            if st.session_state.search_results:
-                client_groups = defaultdict(list)
-                for uid, entry in st.session_state.search_results:
-                    norm = entry['name'].strip().lower()    
-                    client_groups[norm].append((uid, entry))
-                
-                for cname, entries_list in client_groups.items():
-                    count_completed = sum(1 for uid, e in entries_list if e.get('completed'))
-                    count_active    = len(entries_list) - count_completed
-                    first_entry     = entries_list[0][1]
-
-                    phones = {e.get('phone_number','N/A') for uid,e in entries_list}
-                    secs   = {e.get('second_party','N/A')   for uid,e in entries_list}
-
-                    total_payable_sum = sum(float(e.get('total_payable','0') or 0) for uid,e in entries_list)
-                    total_paid_sum    = sum(float(e.get('total_paid','0')    or 0) for uid,e in entries_list)
-                    remaining_sum     = max(0, total_payable_sum - total_paid_sum)
-
-                    display_name = first_entry['name']
-
-                    st.markdown(f"<h2 class='card-title'>{display_name}</h2>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"**Phone:** {', '.join(phones)}  |  "
-                        f"**Second Party:** {', '.join(secs)}  \n\n"
-                        f"**Completed Cases:** {count_completed}  |  **Ongoing Cases:** {count_active}  \n\n"
-                        f"**Total Payable:** ₹{total_payable_sum:.2f}  |  "
-                        f"**Total Paid:** ₹{total_paid_sum:.2f}  |  "
-                        f"**Remaining:** ₹{remaining_sum:.2f}"
-                    , unsafe_allow_html=True)
-
-                    for uid, entry in entries_list:
-                        with st.expander(f"Details for Case {uid}", expanded=False):
-                            if not entry.get('completed', False):
-                                st.markdown("<hr>", unsafe_allow_html=True)
-                                new_message = st.text_area(
-                                    f"Add Update for {entry['name']}",
-                                    height=100,
-                                    key=f"search_update_{uid}"
-                                )
-                                
-                                st.markdown("<div class='payment-section'>Make Payment:</div>", unsafe_allow_html=True)
-                                payment_made = st.text_input("Payment Amount (₹)", key=f"search_payment_{uid}")
-                                
-                                col1, col2 = st.columns([1, 1])
-                                with col1:
-                                    if st.button("Submit Update", key=f"search_btn_update_{uid}"):
-                                        success, message = update_entry(
-                                            unique_id=uid,
-                                            message=new_message,
-                                            computer_name=st.session_state.network.hostname,
-                                            employee_name=st.session_state.network.hostname,
-                                            payment_made=payment_made
-                                        )
-                                        st.session_state.action_status = (success, message)
-                                        st.session_state.form_submitted = True
-                                        # Preserve the current tab and immediately show results
-                                        st.session_state.active_tab = "Search Clients" 
-                                        st.rerun()
-                                with col2:
-                                    if st.button("Mark Completed", key=f"search_btn_complete_{uid}"):
-                                        employee_name = st.session_state.network.hostname
-                                        success, message = mark_entry_completed(
-                                            unique_id=uid,
-                                            computer_name=st.session_state.network.hostname,
-                                            employee_name=employee_name
-                                        )
-                                        st.session_state.action_status = (success, message)
-                                        st.session_state.form_submitted = True
-                                        # Preserve the current tab and immediately show results
-                                        st.session_state.active_tab = "Search Clients"
-                                        st.rerun()
-                            
-                            st.markdown("<hr>", unsafe_allow_html=True)
-                            st.markdown("### History")
-                            for item in reversed(entry['history']):
-                                msg_html = item['message'].replace("\n", "<br>")
-                                st.markdown(
-                                    f"<div class='history-item'><strong>{item['timestamp']} - {item['computer']}:</strong><br>{msg_html}</div>",
-                                    unsafe_allow_html=True
-                                )
+                        st.markdown("</div>", unsafe_allow_html=True)
             else:
-                st.markdown('<div class="search-no-results">No clients found matching your search.</div>', unsafe_allow_html=True)
+                st.info("No active entries found.")
     
+        # === TAB 2: SEARCH CLIENTS ===
+        with tab_search_clients:
+            st.markdown('<h2 class="section-header">Search Clients</h2>', unsafe_allow_html=True)
+            st.markdown('<div class="info-message">Search for clients by name.</div>', unsafe_allow_html=True)
+            
+            search_query = st.text_input("Enter client name to search", key="search_query")
+            
+            if st.button("Search"):
+                # Set the active tab to Search Clients
+                st.session_state.active_tab = "Search Clients"
+                st.session_state.current_search_query = search_query
+                search_results = search_entries_by_name(st.session_state.entries, search_query)
+                st.session_state.search_results = search_results
+                # Don't rerun here - results will be shown directly
+            
+            if st.session_state.search_results is not None:
+                if st.session_state.search_results:
+                    client_groups = defaultdict(list)
+                    for uid, entry in st.session_state.search_results:
+                        norm = entry['name'].strip().lower()    
+                        client_groups[norm].append((uid, entry))
+                    
+                    for cname, entries_list in client_groups.items():
+                        count_completed = sum(1 for uid, e in entries_list if e.get('completed'))
+                        count_active    = len(entries_list) - count_completed
+                        first_entry     = entries_list[0][1]
+
+                        phones = {e.get('phone_number','N/A') for uid,e in entries_list}
+                        secs   = {e.get('second_party','N/A')   for uid,e in entries_list}
+
+                        total_payable_sum = sum(float(e.get('total_payable','0') or 0) for uid,e in entries_list)
+                        total_paid_sum    = sum(float(e.get('total_paid','0')    or 0) for uid,e in entries_list)
+                        remaining_sum     = max(0, total_payable_sum - total_paid_sum)
+
+                        display_name = first_entry['name']
+
+                        st.markdown(f"<h2 class='card-title'>{display_name}</h2>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"**Phone:** {', '.join(phones)}  |  "
+                            f"**Second Party:** {', '.join(secs)}  \n\n"
+                            f"**Completed Cases:** {count_completed}  |  **Ongoing Cases:** {count_active}  \n\n"
+                            f"**Total Payable:** ₹{total_payable_sum:.2f}  |  "
+                            f"**Total Paid:** ₹{total_paid_sum:.2f}  |  "
+                            f"**Remaining:** ₹{remaining_sum:.2f}"
+                        , unsafe_allow_html=True)
+
+                        for uid, entry in entries_list:
+                            with st.expander(f"Details for Case {uid}", expanded=False):
+                                if not entry.get('completed', False):
+                                    st.markdown("<hr>", unsafe_allow_html=True)
+                                    new_message = st.text_area(
+                                        f"Add Update for {entry['name']}",
+                                        height=100,
+                                        key=f"search_update_{uid}"
+                                    )
+                                    
+                                    st.markdown("<div class='payment-section'>Make Payment:</div>", unsafe_allow_html=True)
+                                    payment_made = st.text_input("Payment Amount (₹)", key=f"search_payment_{uid}")
+                                    
+                                    col1, col2 = st.columns([1, 1])
+                                    with col1:
+                                        if st.button("Submit Update", key=f"search_btn_update_{uid}"):
+                                            success, message = update_entry(
+                                                unique_id=uid,
+                                                message=new_message,
+                                                computer_name=st.session_state.network.hostname,
+                                                employee_name=st.session_state.network.hostname,
+                                                payment_made=payment_made
+                                            )
+                                            st.session_state.action_status = (success, message)
+                                            st.session_state.form_submitted = True
+                                            # Preserve the current tab and immediately show results
+                                            st.session_state.active_tab = "Search Clients" 
+                                            st.rerun()
+                                    with col2:
+                                        if st.button("Mark Completed", key=f"search_btn_complete_{uid}"):
+                                            employee_name = st.session_state.network.hostname
+                                            success, message = mark_entry_completed(
+                                                unique_id=uid,
+                                                computer_name=st.session_state.network.hostname,
+                                                employee_name=employee_name
+                                            )
+                                            st.session_state.action_status = (success, message)
+                                            st.session_state.form_submitted = True
+                                            # Preserve the current tab and immediately show results
+                                            st.session_state.active_tab = "Search Clients"
+                                            st.rerun()
+                                
+                                st.markdown("<hr>", unsafe_allow_html=True)
+                                st.markdown("### History")
+                                for item in reversed(entry['history']):
+                                    msg_html = item['message'].replace("\n", "<br>")
+                                    st.markdown(
+                                        f"<div class='history-item'><strong>{item['timestamp']} - {item['computer']}:</strong><br>{msg_html}</div>",
+                                        unsafe_allow_html=True
+                                    )
+                else:
+                    st.markdown('<div class="search-no-results">No clients found matching your search.</div>', unsafe_allow_html=True)
+
+    # === TAB 2: VISITORS ===
+    with tab_visitors_main:
+        visitor_sub = ["Visitor Entries", "Search Visitor Entries"]
+        tab_visitor_entries, tab_search_visitors = st.tabs(visitor_sub)
+
+        # --- Register New Visitor ---
+        with tab_visitor_entries:
+            st.markdown('<h2 class="section-header">Visitor Management Center</h2>', unsafe_allow_html=True)
+            with st.expander("Register Visitor", expanded=True):
+                v_name   = st.text_input("Name", key="vis_name")
+                v_phone  = st.text_input("Phone Number", key="vis_phone")
+                v_gender = st.selectbox("Gender", ["Male","Female","Other"], key="vis_gender")
+                v_reason = st.text_area("Visiting Reason", key="vis_reason", height=80)
+
+                if st.button("Add Visitor", key="vis_add_btn"):
+                    # 1) Validation: no empty fields
+                    if not v_name.strip() or not v_phone.strip() or not v_reason.strip():
+                        st.error("All fields are required.")
+                    else:
+                        key = v_name.strip().lower()
+                        visitors = st.session_state.visitors
+
+                        # 2) Duplicate prevention
+                        if key in visitors:
+                            st.error(f"Visitor '{v_name.strip()}' is already registered. Duplicate entries are not allowed.")
+                        else:
+                            now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            # create new record
+                            visitors[key] = {
+                                "name": v_name.strip(),
+                                "gender": v_gender,
+                                "visits": [{
+                                    "checkin_time": now,
+                                    "checkout_time": None,
+                                    "reason": v_reason.strip()
+                                }],
+                                "phone_history": [{
+                                    "phone": v_phone.strip(),
+                                    "timestamp": now
+                                }]
+                            }
+                            save_visitors(visitors)
+                            st.session_state.visitors = visitors
+                            st.session_state.network.broadcast_visitors(visitors)
+                            st.session_state.notification_system.notify_visitor_event(v_name, 'registered')
+                            st.success(f"Visitor '{v_name.strip()}' successfully registered.")
+
+            # --- Active Visitors ---
+            st.markdown("<h3>Active Visitors</h3>", unsafe_allow_html=True)
+            visitors = st.session_state.visitors
+            active = {
+                key: rec
+                for key, rec in visitors.items()
+                if any(v["checkout_time"] is None for v in rec.get("visits", []))
+            }
+
+            if active:
+                for key, rec in active.items():
+                    latest_visit = [v for v in rec["visits"] if v["checkout_time"] is None][-1]
+                    with st.expander(f"{rec['name']} (Checked in at {latest_visit['checkin_time']})", expanded=False):
+                        st.markdown(f"**Reason:** {latest_visit['reason']}")
+                        st.markdown(f"**Phone:** {rec['phone_history'][-1]['phone']}")
+
+                        col1, col2 = st.columns([3,1])
+                        with col2:
+                            # End Visit button (unchanged)
+                            if st.button("End Visit", key=f"vis_over_{key}"):
+                                now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                                latest_visit["checkout_time"] = now
+                                save_visitors(st.session_state.visitors)
+                                st.session_state.network.broadcast_visitors(st.session_state.visitors)
+                                st.session_state.notification_system.notify_visitor_event(rec['name'], 'left')
+                                st.rerun()
+
+                            # 3) Edit button
+                            if st.button("Edit", key=f"vis_edit_{key}"):
+                                st.session_state.editing_visitor = key
+                                st.rerun()
+
+                        # Inline edit form
+                        if st.session_state.get("editing_visitor") == key:
+                            st.markdown("---")
+                            new_name = st.text_input("Name", value=rec["name"], key=f"edit_name_{key}")
+                            new_phone = st.text_input("Phone Number", value=rec["phone_history"][-1]["phone"], key=f"edit_phone_{key}")
+                            genders = ["Male","Female","Other"]
+                            new_gender = st.selectbox("Gender", genders, index=genders.index(rec["gender"]), key=f"edit_gender_{key}")
+                            new_reason = st.text_area("Visiting Reason", value=latest_visit["reason"], key=f"edit_reason_{key}", height=80)
+
+                            if st.button("Save Changes", key=f"vis_save_{key}"):
+                                # validate
+                                if not new_name.strip() or not new_phone.strip() or not new_reason.strip():
+                                    st.error("All fields are required.")
+                                else:
+                                    now = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                                    # update record
+                                    rec["name"] = new_name.strip()
+                                    rec["gender"] = new_gender
+                                    # phone history
+                                    if new_phone.strip() != rec["phone_history"][-1]["phone"]:
+                                        rec["phone_history"].append({"phone": new_phone.strip(), "timestamp": now})
+                                    # reason
+                                    latest_visit["reason"] = new_reason.strip()
+
+                                    save_visitors(visitors)
+                                    st.session_state.network.broadcast_visitors(visitors)
+                                    st.success(f"Visitor '{new_name.strip()}' updated.")
+                                    # exit edit mode
+                                    del st.session_state["editing_visitor"]
+                                    st.rerun()
+            else:
+                st.info("No active visitors.")
+
+            # --- Search Visitor Records ---
+            with tab_search_visitors:
+                st.markdown("<h3>Search Visitor Records</h3>", unsafe_allow_html=True)
+                q = st.text_input("Enter visitor name to search", key="vis_search_q")
+                if st.button("Search Visitor", key="vis_search_btn"):
+                    visitors = load_visitors()
+                    ql = q.strip().lower()
+                    results = [rec for k,rec in visitors.items() if ql in k]
+                    if results:
+                        for rec in results:
+                            # Card-like display
+                            with st.expander(f"{rec['name']}  |  Gender: {rec['gender']}", expanded=False):
+                                # Phone history
+                                st.markdown("**Phone History:**")
+                                for ph in rec["phone_history"]:
+                                    st.markdown(f"- {ph['phone']} (added {ph['timestamp']})")
+                                
+                                st.markdown("**Visit History:**")
+                                for v in rec["visits"]:
+                                    ci = v["checkin_time"]
+                                    co = v["checkout_time"] or "—"
+                                    st.markdown(f"- {ci} → {co}  |  Reason: {v['reason']}")
+                    else:
+                        st.warning("No visitor records found.")
+
+
     # === TAB 3: SHARED WHITEBOARD ===
-    with tab_whiteboard:
+    with tab_whiteboard_main:
         st.markdown(
             '<h2 class="section-header">Shared Whiteboard</h2>',
             unsafe_allow_html=True
@@ -2441,79 +2490,25 @@ def main():
             else:
                 st.info("No changes to update.")
 
-    with tab_visitors:
-        st.markdown('<h2 class="section-header">Visitor Management Center</h2>', unsafe_allow_html=True)
-        
-        # New Visitor
-        with st.expander("Register New Visitor", expanded=True):
-            v_name   = st.text_input("Name", key="vis_name")
-            v_phone  = st.text_input("Phone Number", key="vis_phone")
-            v_gender = st.selectbox("Gender", ["Male","Female","Other"], key="vis_gender")
-            v_reason = st.text_area("Visiting Reason", key="vis_reason", height=80)
-            if st.button("Add / Update Visitor", key="vis_add_btn"):
-                key = v_name.strip().lower()
-                visitors = st.session_state.visitors
-                visitors[key] = {
-                    "name": v_name.strip(),
-                    "phone": v_phone.strip(),
-                    "gender": v_gender,
-                    "reason": v_reason.strip(),
-                    "active": True,
-                    "checkin_time": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                }
-                save_visitors(visitors)
-                st.session_state.visitors = visitors
-                # broadcast to peers
-                st.session_state.network.broadcast_visitors(visitors)
-                # notify
-                st.session_state.notification_system.notify_visitor_event(v_name, 'registered')
-                st.success(f"Visitor '{v_name}' registered.")
+    # --- Update active_tab based on which main/sub tab is active ---
+    if tab_clients._active:
+        # Inside the Clients main tab
+        if tab_client_entries._active:
+            st.session_state.active_tab = "Client Entries"
+        elif tab_search_clients._active:
+            st.session_state.active_tab = "Search Client Entries"
 
-        # Active Visitors
-        st.markdown("<h3>Active Visitors</h3>", unsafe_allow_html=True)
-        visitors = st.session_state.visitors
-        active = {k:v for k,v in visitors.items() if v.get('active')}
-        if active:
-            for key,v in active.items():
-                col1,col2 = st.columns([3,1])
-                with col1:
-                    st.markdown(f"**{v['name']}** | {v['phone']} | {v['gender']} | Reason: {v['reason']}")
-                with col2:
-                    if st.button("Visit Over", key=f"vis_over_{key}"):
-                        visitors[key]['active'] = False
-                        visitors[key]['checkout_time'] = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                        save_visitors(visitors)
-                        st.session_state.visitors = visitors
-                        st.session_state.network.broadcast_visitors(visitors)
-                        st.session_state.notification_system.notify_visitor_event(v['name'], 'left')
-                        st.rerun()
-        else:
-            st.info("No active visitors.")
+    elif tab_visitors_main._active:
+        # Inside the Visitors main tab
+        if tab_visitor_entries._active:
+            st.session_state.active_tab = "Visitor Entries"
+        elif tab_search_visitors._active:
+            st.session_state.active_tab = "Search Visitor Entries"
 
-        # Search Visitors
-        st.markdown("<h3>Search Visitor Records</h3>", unsafe_allow_html=True)
-        q = st.text_input("Enter visitor name to search", key="vis_search_q")
-        if st.button("Search Visitor", key="vis_search_btn"):
-            visitors = load_visitors()
-            ql = q.strip().lower()
-            results = [v for k,v in visitors.items() if ql in k]
-            if results:
-                for v in results:
-                    st.markdown(
-                        f"**{v['name']}** | {v['phone']} | {v['gender']} | Reason: {v['reason']}  \
-                        Checked in: {v.get('checkin_time')}  \
-                        Checked out: {v.get('checkout_time','-')}"
-                    )
-            else:
-                st.warning("No visitor records found.")
-
-    # Check which tab is currently active and update the session state
-    if tab_main._active:
-        st.session_state.active_tab = "Client Entries"
-    elif tab_search._active:
-        st.session_state.active_tab = "Search Clients" 
-    elif tab_whiteboard._active:
+    elif tab_whiteboard_main._active:
+        # The Whiteboard main tab has no subtabs
         st.session_state.active_tab = "Shared Whiteboard"
+
 
 if __name__ == "__main__":
     main()

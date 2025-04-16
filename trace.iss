@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "Trace Document Tracker"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppPublisher "Arnav Rajurkar"
 #define MyAppExeName "launcher.exe"
 #define MyAppAssocName MyAppName + " File"
